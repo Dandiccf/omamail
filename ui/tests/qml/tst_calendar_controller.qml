@@ -10,6 +10,8 @@ Item {
     id: mailService
 
     property var requests: []
+    property var nextResult: ({ body: "{}", status: 200 })
+    property var nextError: null
     property bool backendCanDiscoverCalendars: true
     property var discoveryCallback: null
     property var backend: ({ ready: false, call: function(method, params, callback) {
@@ -18,7 +20,7 @@ Item {
         mailService.discoveryCallback = callback
         return
       }
-      callback({ body: "{}", status: 200 }, null)
+      callback(mailService.nextResult, mailService.nextError)
     } })
     property bool unifiedCalendarView: false
     property var accountSummaries: [
@@ -58,6 +60,8 @@ Item {
       // the function, so a restore on its last line does not run and one real
       // failure becomes a cascade that hides it.
       mailService.requests = []
+      mailService.nextResult = ({ body: "{}", status: 200 })
+      mailService.nextError = null
       mailService.backendCanDiscoverCalendars = true
       mailService.discoveryCallback = null
       mailService.backend.ready = false
@@ -159,6 +163,29 @@ Item {
       compare(mailService.requests.length, 0)
       controller.nativeRequest({kind: "microsoft", calendarId: ""}, "list", {}, function() {})
       compare(mailService.requests.length, 1, "the established default calendar still works")
+    }
+
+    function test_native_request_explains_microsoft_recovery() {
+      mailService.nextResult = null
+      mailService.nextError = ({ code: -32000, message: "calendar_auth_refused" })
+      var called = false
+      controller.nativeRequest({ kind: "microsoft" }, "list", {}, function(result, error) {
+        compare(result, null)
+        compare(error, "Microsoft calendar request failed. Check Graph permissions in Settings, then sign in again")
+        called = true
+      })
+      verify(called)
+    }
+
+    function test_native_request_does_not_display_backend_diagnostics() {
+      mailService.nextResult = null
+      mailService.nextError = ({ code: -32000, message: "private backend diagnostic" })
+      var called = false
+      controller.nativeRequest({ kind: "microsoft" }, "list", {}, function(_result, error) {
+        compare(error, "Microsoft calendar request failed. Check Graph permissions in Settings, then sign in again")
+        called = true
+      })
+      verify(called)
     }
 
     function sourceIds(list) {
