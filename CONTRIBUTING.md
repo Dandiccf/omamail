@@ -136,6 +136,8 @@ Keep an attachment, not only open it once
 
 Not `fix imap bug`, not `Update ImapClient.qml`.
 
+Choose a scope prefix from the final change: `ai: ` for AI features, `docs: ` for documentation only, `website: ` for the website, and `chore: ` for repository maintenance such as release workflows, CI, builds, dependency upkeep and developer tooling. Other changes have no scope prefix. For mixed changes, use the primary outcome: a release-flow PR with README cleanup uses `chore: `, for example `chore: Fix backend release ordering with a single release PR`. These rules also apply to individual commit subjects. See [the naming rules](AGENTS.md#commits-and-pull-requests).
+
 **The body is prose, with two headings that are read by a machine.** Say what
 was wrong and why this is the fix; a paragraph of reasoning is worth more than
 a bulleted diff summary, and the surprising part is the part to spend words on.
@@ -181,3 +183,22 @@ force-push are not.
 
 If an agent wrote the patch, you are still its author: read the diff before you
 send it, and be able to explain any line in it.
+
+## Releasing
+
+A release is one command, run on a clean `main` that matches `origin/main`:
+
+```bash
+make publish VERSION=0.11.0
+```
+
+The command requires a clean main synchronized with origin and an authenticated `gh`. It creates `release/0.11.0`, updates `Cargo.toml`, `Cargo.lock` and `manifest.json`, pushes that branch and opens one PR. Without `VERSION`, it increments the patch version. It never pushes main or creates a tag locally.
+
+The branch push triggers **Release**. CI tests and builds both native backends, creates the tag and GitHub release, downloads and verifies the published assets, then updates `backend-version` and the released API contract in the same PR. The required backend gate blocks that PR until the new pin is present and the actual released binaries pass. Review and merge the completed PR once; version metadata and the backend dependency reach main together.
+
+- Keep main's ruleset active without an always-on bypass. Every update, including a release, goes through a PR; the administrator's PR-only bypass is not part of the release workflow.
+- Never tag by hand or delete an existing release tag to reuse its version. If publication fails, inspect the retained tag, draft or release and follow the recovery instructions before choosing a new version.
+- Features may merge with one unreleased API step while checking the connected backend against their fixed minimum API revision. Publish a backend release to make that step available to users; the feature check remains valid after publication.
+- If publication succeeds but the pin push fails, keep the published assets and recover the pin on the same PR after verification.
+
+See [backend releases and recovery](docs/BACKEND-RUNTIME.md#release-before-pin) for the complete sequence and token requirements.

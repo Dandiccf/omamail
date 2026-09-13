@@ -32,6 +32,7 @@ Column {
   property bool connectionBusy: false
   property var connectionReport: null
   property int connectionSerial: 0
+  readonly property bool connectionAvailable: !!service && service.backendCanCheckMicrosoftConnection === true
 
   spacing: Style.space(16)
 
@@ -94,7 +95,7 @@ Column {
   }
 
   function checkConnection() {
-    if (!root.signedIn || root.connectionBusy || !root.service) return
+    if (!root.signedIn || root.connectionBusy || !root.connectionAvailable) return
     var serial = ++root.connectionSerial
     root.connectionBusy = true
     root.connectionReport = null
@@ -410,7 +411,7 @@ Column {
 
   Button {
     objectName: "outlook-check-connection"
-    visible: root.signedIn
+    visible: root.signedIn && root.connectionAvailable
     text: root.connectionBusy ? "Checking Microsoft 365..." : "Check Microsoft 365"
     enabled: !root.connectionBusy && !root.busy && !(root.auth && root.auth.refreshBusy === true)
     foreground: root.textColor

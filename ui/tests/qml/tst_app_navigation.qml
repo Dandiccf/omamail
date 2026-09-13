@@ -48,6 +48,9 @@ Item {
 
   QtObject {
     id: mailService
+    property bool diagnosing: false
+    property int diagnosisCalls: 0
+    function diagnoseError() { diagnosisCalls++; diagnosing = true }
 
     property bool ready: true
     property bool anyAccountReady: true
@@ -190,6 +193,10 @@ Item {
     function refresh() {}
     function fail(text) { lastError = String(text || "") }
     function note(text) { actionStatus = String(text || "") }
+    function act(id, action) {
+      record("act:" + String(action || "") + ":" + String(id || ""))
+      return true
+    }
     function refuseUnavailableAction(action) {
       record("guard:" + String(action || ""))
       if (!refuseMove) return false
@@ -573,6 +580,23 @@ Item {
       compare(createEvent.text, "Create event")
       compare(typeof createEvent.iconName, "undefined")
     }
+    function test_status_error_opens_external_diagnosis_once() {
+      mailService.lastError = "Could not confirm AI started. Check the conversation before retrying."
+      mailService.actionStatus = ""
+      mailService.diagnosing = false
+      mailService.diagnosisCalls = 0
+      var button = named(app, "diagnose-error-button")
+      verify(button !== null)
+      verify(waitForRendering(app))
+      verify(button.visible)
+      verify(button.width > 0 && button.height > 0)
+      mouseClick(button, button.width / 2, button.height / 2)
+      compare(mailService.diagnosisCalls, 1)
+      compare(button.enabled, false)
+      mailService.diagnosing = false
+      mailService.lastError = ""
+      compare(button.visible, false)
+    }
 
     function test_an_event_opened_for_reading_is_a_place() {
       app.runShortcut("calendarView", "")
@@ -597,6 +621,32 @@ Item {
       app.openMessage("message-1")
       app.openMessage("message-1")
       compare(kinds(), "list,reader", "reading the next message does not lengthen history")
+    }
+
+    // A click in the search field, then a row: the field kept the focus — a
+    // MouseArea moves none — so the context stayed "search" with a message
+    // open, and `e` typed itself into the query instead of archiving.
+    function test_opening_a_message_takes_the_keyboard_back_from_search() {
+      var field = having(app, function(it) {
+        return it.placeholderText !== undefined
+          && String(it.placeholderText).indexOf("Search mail") === 0
+      })
+      verify(field, "the search field is on the page")
+      var scope = having(app, function(it) {
+        return typeof it.keyContext === "string" && typeof it.parkKeyboard === "function"
+      })
+      verify(scope, "the focus scope is on the page")
+      var spot = field.mapToItem(app, field.width / 2, field.height / 2)
+      mouseClick(app, spot.x, spot.y)
+      tryCompare(scope, "keyContext", "search")
+
+      app.openMessage("message-1")
+      mailService.land()
+      tryCompare(scope, "keyContext", "reader")
+      keyClick(Qt.Key_E)
+      compare(field.text, "", "the letter is a shortcut again, not text")
+      compare(mailService.count("act:archive:message-1"), 1,
+        "and the list's keys work with the reader open")
     }
 
     function test_back_on_the_root_clears_a_search_before_closing() {

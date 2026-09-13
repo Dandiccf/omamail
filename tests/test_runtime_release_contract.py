@@ -23,7 +23,7 @@ class RuntimeReleaseContract(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="omamail-release-contract-") as directory:
             root = Path(directory).resolve()
             (root / "backend-version").write_text("0.8.2\n")
-            (root / "backend-api.json").write_text('{"apiVersion": 1}')
+            (root / "backend-api.json").write_text('{"apiVersion": 1, "releasedApiVersion": 1, "unreleased": {"methods": [], "cases": []}}')
             binary = root / "build/omamail"
             binary.parent.mkdir()
             payload = b"#!/bin/sh\nprintf 'omamail 0.8.2\\n'\n"
@@ -49,8 +49,12 @@ class RuntimeReleaseContract(unittest.TestCase):
                 self.assertLessEqual(len(result), limit)
                 return result
 
-            installed = root / "runtime/bin/omamail"
-            with patch.object(runtime, "ROOT", root), patch.object(runtime, "BINARY", installed), \
+            data = root / "data/omamail"
+            installed = data / "bin/omamail"
+            with patch.object(runtime, "ROOT", root), patch.object(runtime, "DATA_ROOT", data), \
+                    patch.object(runtime, "BINARY", installed), \
+                    patch.object(runtime, "LOCAL_BUILD", data / "local-build.json"), \
+                    patch.object(runtime, "LOCK", data / "runtime.lock"), \
                     patch.object(runtime.Path, "home", return_value=root / "home"), \
                     patch.object(runtime.platform, "system", return_value="Linux"), \
                     patch.object(runtime.platform, "machine", return_value="x86_64"), \
