@@ -411,6 +411,7 @@ Column {
 
   Button {
     objectName: "outlook-check-connection"
+    focusable: true
     visible: root.signedIn && root.connectionAvailable
     text: root.connectionBusy ? "Checking Microsoft 365..." : "Check Microsoft 365"
     enabled: !root.connectionBusy && !root.busy && !(root.auth && root.auth.refreshBusy === true)

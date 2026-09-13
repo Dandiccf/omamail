@@ -14,6 +14,10 @@ Rectangle {
   property bool hasCursor: false
   property bool leftAlign: false
   property bool focusable: false
+  activeFocusOnTab: focusable
+  Keys.onReturnPressed: if (focusable) clicked()
+  Keys.onEnterPressed: if (focusable) clicked()
+  Keys.onSpacePressed: if (focusable) clicked()
   property string fontFamily: "monospace"
   property real fontSize: 13
   property real horizontalPadding: 8
