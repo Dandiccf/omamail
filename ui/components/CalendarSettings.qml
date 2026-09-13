@@ -172,6 +172,7 @@ Column {
       Button {
         id: discoveryButton
         objectName: "calendar-discover-" + String(discoveryRow.modelData.calendarProvider || "account")
+        focusable: true
         anchors.right: parent.right
         anchors.rightMargin: Style.space(10)
         anchors.verticalCenter: parent.verticalCenter
@@ -246,6 +247,7 @@ Column {
         Button {
           id: colorButton
           objectName: "calendar-source-color"
+          focusable: true
           width: Style.space(24)
           height: width
           // The switch reserves a taller cursor target than this compact
@@ -298,16 +300,36 @@ Column {
             && !root.controller.discoveringCalendars
           onClicked: root.controller.removeCalendar(modelData.id)
         }
-        ToggleSwitch {
+        Button {
           id: sourceToggle
           objectName: "calendar-source-toggle"
-          checked: modelData.enabled !== false
+          property bool checked: modelData.enabled !== false
+          signal toggled()
+          focusable: true
+          horizontalPadding: 0
+          verticalPadding: 0
+          implicitWidth: switchGraphic.implicitWidth
+          implicitHeight: switchGraphic.implicitHeight
+          Accessible.role: Accessible.CheckBox
+          Accessible.name: "Show " + String(modelData.name || modelData.id)
+          Accessible.checked: checked
           foreground: root.textColor
           accent: root.accentColor
           enabled: !!root.controller && !root.controller.savingSource
             && !root.controller.discoveringCalendars
+          onClicked: toggled()
           onToggled: if (root.controller)
             root.controller.setSourceEnabled(modelData.id, modelData.enabled === false)
+          ToggleSwitch {
+            id: switchGraphic
+            anchors.centerIn: parent
+            checked: sourceToggle.checked
+            interactive: false
+            cursorRing: true
+            hasCursor: sourceToggle.hot || sourceToggle.activeFocus
+            foreground: root.textColor
+            accent: root.accentColor
+          }
         }
       }
       }
@@ -337,6 +359,7 @@ Column {
             id: paletteOption
             required property string modelData
             objectName: "calendar-color-" + modelData
+            focusable: true
             width: Style.space(24)
             height: width
             horizontalPadding: 0
