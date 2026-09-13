@@ -38,6 +38,7 @@ Item {
       property string accountAddress: "alice@hotmail.com"
       property int starts: 0
       property var connectionCallback: null
+      property bool backendCanCheckMicrosoftConnection: true
       function cancelSignIn() { auth.cancelLogin() }
       function configureCurrentAccountAndSignInOAuth(values) { starts++ }
       function checkMicrosoftConnection(callback) { connectionCallback = callback }
@@ -203,9 +204,38 @@ Item {
       compare(status.visible, false,
         "a late diagnostic must not reappear after sign-out")
     }
+    function test_connection_check_waits_for_a_supported_backend() {
+      var host = readyHost()
+      var service = createTemporaryObject(serviceFactory, parent, {
+        auth: host.auth, backendCanCheckMicrosoftConnection: false })
+      var page = createTemporaryObject(pageFactory, parent, { service: service })
+      host.auth.loggedIn = true
+      var button = findChild(page, "outlook-check-connection")
+      compare(button.visible, false)
+      page.checkConnection()
+      compare(service.connectionCallback, null)
+      compare(page.connectionBusy, false)
+      service.backendCanCheckMicrosoftConnection = true
+      compare(button.visible, true)
+    }
+    function test_account_connection_check_refuses_an_old_backend_without_a_request() {
+      var host = readyHost()
+      var backend = Transports.install(host.api)
+      backend.apiVersion = 2
+      host.backend = backend
+      host.auth.loggedIn = true
+      wait(1)
+      backend.testCalls = []
+      var report = null
+      host.checkMicrosoftConnection(function(value) { report = value })
+      compare(backend.testCalls.length, 0)
+      verify(report !== null)
+      compare(report.mail, false)
+    }
     function test_account_connection_check_uses_only_saved_boundaries() {
       var host = readyHost()
       var backend = Transports.install(host.api)
+      backend.apiVersion = 3
       host.backend = backend
       host.api.backend = backend
       host.auth.backend = backend

@@ -207,7 +207,8 @@ function withMicrosoftAccounts(list, accountSummaries) {
     next = add(next, {
       id: "microsoft:" + accountId,
       kind: "microsoft",
-      name: trimmed(account.email || account.label || "Microsoft Calendar"),
+      name: saved && saved.discovered === true && trimmed(saved.name) !== ""
+        ? trimmed(saved.name) : trimmed(account.email || account.label || "Microsoft Calendar"),
       accountId: accountId,
       enabled: saved ? saved.enabled !== false : true,
       calendarId: saved ? trimmed(saved.calendarId) : "",
@@ -224,9 +225,15 @@ function comesWithAccount(source) {
     || source.kind === "icloud")
 }
 
+function comparableUrl(value) {
+  var text = trimmed(value)
+  var parts = /^(https?:\/\/[^/?#]+)([^?#]*)(.*)$/i.exec(text)
+  if (!parts) return text
+  return parts[1].toLowerCase() + parts[2].replace(/\/+$/, "") + parts[3]
+}
+
 function sameUrl(left, right) {
-  return trimmed(left).replace(/\/+$/, "").toLowerCase()
-    === trimmed(right).replace(/\/+$/, "").toLowerCase()
+  return comparableUrl(left) === comparableUrl(right)
 }
 
 // Replace the account-owned part of a source list with one bounded discovery

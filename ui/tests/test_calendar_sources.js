@@ -163,6 +163,17 @@ assert.strictEqual(sources.calendarEditorUrl({ sources: [{
 
 console.log("test_calendar_sources.js ok")
 
+assert.strictEqual(sources.sameUrl("https://CALDAV.ICLOUD.COM/Work/", "https://caldav.icloud.com/Work"), true)
+assert.strictEqual(sources.sameUrl("https://caldav.icloud.com/Work/", "https://caldav.icloud.com/work/"), false,
+  "case-sensitive calendar paths must not adopt or remove another saved calendar")
+
+const namedMicrosoft = sources.withMicrosoftAccounts({sources: [{
+  id: "microsoft:outlook:me@contoso.com", kind: "microsoft", accountId: "outlook:me@contoso.com",
+  name: "Work appointments", calendarId: "default-id", discovered: true
+}]}, [{id: "outlook:me@contoso.com", email: "me@contoso.com", provider: "outlook", signedIn: true}])
+assert.strictEqual(namedMicrosoft.sources[0].name, "Work appointments",
+  "refreshing the account summary must preserve the discovered default calendar's name")
+
 // A Microsoft calendar comes with a signed-in Outlook mailbox, the way a
 // Google one comes with Gmail.
 {

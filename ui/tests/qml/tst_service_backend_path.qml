@@ -9,6 +9,28 @@ Item {
   }
   TestCase {
     name: "ServiceBackendPath"
+    function test_microsoft_connection_requirement_is_fixed_across_releases() {
+      var service = createTemporaryObject(factory, parent)
+      verify(service !== null)
+      var backend = service.backend
+      backend.launchEnabled = true
+      backend.connected = true
+      backend.protocolInfo = ({ apiVersion: 2 })
+      compare(service.backendCanCheckMicrosoftConnection, false)
+      compare(service.backendCanDiscoverCalendars, false)
+      backend.protocolInfo = ({ apiVersion: 3 })
+      compare(service.backendCanCheckMicrosoftConnection, true)
+      compare(service.backendCanDiscoverCalendars, true)
+      backend.latestApiVersion = 4
+      compare(service.backendCanDiscoverCalendars, true)
+      compare(service.backendCanCheckMicrosoftConnection, true,
+        "a later API must not disable an already supported connection check")
+      backend.protocolInfo = ({ apiVersion: 4 })
+      compare(service.backendCanCheckMicrosoftConnection, true)
+      backend.connected = false
+      compare(service.backendCanCheckMicrosoftConnection, false)
+      compare(service.backendCanDiscoverCalendars, false)
+    }
     function test_resolved_runtime_path_starts_backend() {
       var service = createTemporaryObject(factory, parent)
       verify(service !== null)

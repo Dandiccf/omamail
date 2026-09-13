@@ -110,9 +110,15 @@ fn prepare(params: &Value) -> Result<Request, &'static str> {
     match kind {
         "google" | "microsoft" => {
             if kind == "microsoft" {
-                let calendar_id = source.get("calendarId").and_then(Value::as_str);
+                // Legacy/default sources serialize an empty identity. They
+                // still address /me/calendarView until discovery names one.
+                let calendar_id = source
+                    .get("calendarId")
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.is_empty());
                 if let Some(calendar_id) = calendar_id {
-                    if calendar_id.is_empty()
+                    if calendar_id == "."
+                        || calendar_id == ".."
                         || calendar_id.len() > 8192
                         || calendar_id.chars().any(char::is_control)
                     {

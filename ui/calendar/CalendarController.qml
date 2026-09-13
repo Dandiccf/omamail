@@ -116,6 +116,14 @@ Item {
   signal calendarSaved(bool ok, string error)
   signal discoveryFinished(bool ok, string error, int count)
   signal eventCreated(bool ok, string error)
+  // Somebody wants the composer open with these fields — the reader's
+  // suggested event, say. The composer listens; the controller only relays.
+  signal composeRequested(var prefill)
+  // Whether the composer is open on something the owner has typed or is
+  // editing, which a request to open it with other fields must not clobber;
+  // and the word that it closed, written or not.
+  property bool composerHeld: false
+  signal composeEnded()
   signal eventUpdated(bool ok, string error)
   signal eventDeleted(bool ok, string error)
 
@@ -196,6 +204,11 @@ Item {
     if (discoveringCalendars || savingSource || !discoverableAccount(wanted)) return false
     if (!service || !service.backend || !service.backend.ready) {
       discoveryError = "Calendar backend is unavailable"
+      discoveryFinished(false, discoveryError, 0)
+      return false
+    }
+    if (service.backendCanDiscoverCalendars !== true) {
+      discoveryError = "Update the backend to discover account calendars"
       discoveryFinished(false, discoveryError, 0)
       return false
     }
@@ -350,6 +363,12 @@ Item {
 
   function nativeRequest(source, operation, fields, callback) {
     if (!service || !service.backend) { callback(null, "Calendar backend is unavailable"); return }
+    if (source && (source.kind === "icloud"
+        || (source.kind === "microsoft" && String(source.calendarId || "") !== ""))
+        && service.backendCanDiscoverCalendars !== true) {
+      callback(null, "Update the backend to access this calendar")
+      return
+    }
     var params = fields || {}
     params.source = source
     params.operation = operation

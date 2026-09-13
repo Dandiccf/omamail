@@ -22,10 +22,15 @@ import urllib.parse
 import urllib.request
 
 ROOT = Path(__file__).resolve().parent.parent
-BINARY = ROOT / "runtime/bin/omamail"
+DATA_ROOT = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share") / "omamail"
+BINARY = DATA_ROOT / "bin/omamail"
+LEGACY_BINARY = ROOT / "runtime/bin/omamail"
+LOCAL_BUILD = DATA_ROOT / "local-build.json"
+LOCK = DATA_ROOT / "runtime.lock"
 VERSION = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?")
 ARCHIVE_LIMIT = 128 * 1024 * 1024
 BINARY_LIMIT = 256 * 1024 * 1024
+MANIFEST_LIMIT = 1024 * 1024
 
 
 class Refused(Exception):
@@ -47,12 +52,22 @@ def pin():
 
 
 def api_pin():
+    """The API the pinned binary speaks, the one this checkout implements, and
+    the methods only the latter has. The handshake accepts the former; a call
+    to one of the latter on the pinned binary is refused in the UI instead."""
     with (ROOT / "backend-api.json").open("rb") as source:
         raw = source.read(1024 * 1024 + 1)
     require(len(raw) <= 1024 * 1024, "Backend API contract is too large.")
-    version = json.loads(raw).get("apiVersion")
-    require(type(version) is int and 0 < version <= 2147483647, "Invalid backend API version.")
-    return version
+    contract = json.loads(raw)
+    require(isinstance(contract, dict), "Invalid backend API contract.")
+    released = contract.get("releasedApiVersion")
+    latest = contract.get("apiVersion")
+    for value in (released, latest):
+        require(type(value) is int and 0 < value <= 2147483647, "Invalid backend API version.")
+    require(latest - released in (0, 1), "Invalid backend API version.")
+    unreleased = contract.get("unreleased", {}).get("methods", []) if isinstance(contract.get("unreleased"), dict) else None
+    require(isinstance(unreleased, list) and all(isinstance(m, str) for m in unreleased), "Invalid backend API contract.")
+    return released, latest, unreleased
 
 
 def safe_path(path, directory=False, create=False):
@@ -122,7 +137,7 @@ def checkout_version():
 
 def local_required(required):
     """Only an explicit installation of these exact bytes overrides the release pin."""
-    local_build = ROOT / "runtime/local-build.json"
+    local_build = LOCAL_BUILD
     safe_path(local_build)
     if not local_build.exists():
         return required
@@ -155,7 +170,7 @@ def local_required(required):
 
 def replace_runtime(candidate, marker=None):
     """Keep the old override if the atomic executable replacement fails."""
-    local_build = ROOT / "runtime/local-build.json"
+    local_build = LOCAL_BUILD
     safe_path(BINARY)
     safe_path(local_build)
     backup = candidate.parent / "previous-local-build.json"
@@ -216,9 +231,8 @@ def deadline():
 
 @contextlib.contextmanager
 def locked():
-    runtime = ROOT / "runtime"
-    safe_path(runtime, directory=True, create=True)
-    descriptor = os.open(runtime / ".lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    safe_path(DATA_ROOT, directory=True, create=True)
+    descriptor = os.open(LOCK, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     try:
         require(stat.S_ISREG(os.fstat(descriptor).st_mode), "Invalid runtime lock.")
         try:
@@ -232,7 +246,7 @@ def locked():
 
 def install(required, architecture):
     safe_path(BINARY)
-    safe_path(ROOT / "runtime/local-build.json")
+    safe_path(LOCAL_BUILD)
     asset = "omamail-linux-" + architecture + ".tar.gz"
     base = "https://github.com/huacnlee/omamail/releases/download/v" + required + "/"
     with deadline():
@@ -306,13 +320,43 @@ def install_local(required):
         return version
 
 
+def legacy_cli_target(target):
+    if target == str(LEGACY_BINARY):
+        return True
+    candidate = Path(target)
+    if not candidate.is_absolute() or len(candidate.parents) < 3:
+        return False
+    plugin = candidate.parents[2]
+    if candidate != plugin / "runtime/bin/omamail":
+        return False
+    manifest = plugin / "manifest.json"
+    try:
+        safe_path(candidate)
+        safe_path(manifest)
+        with manifest.open("rb") as source:
+            raw = source.read(MANIFEST_LIMIT + 1)
+        if len(raw) > MANIFEST_LIMIT:
+            return False
+        value = json.loads(raw)
+        return isinstance(value, dict) and value.get("id") == "omamail"
+    except (OSError, Refused, UnicodeError, json.JSONDecodeError):
+        return False
+
+
 def cli_link(enable):
     link = Path.home() / ".local/bin/omamail"
     safe_path(link.parent, directory=True, create=enable)
     if link.is_symlink():
-        require(os.readlink(link) == str(BINARY), "CLI path belongs to another installation.")
+        target = os.readlink(link)
+        require(target == str(BINARY) or legacy_cli_target(target),
+                "CLI path belongs to another installation.")
         if not enable:
             link.unlink()
+        elif target != str(BINARY):
+            with tempfile.TemporaryDirectory(prefix=".omamail-cli-", dir=link.parent) as staging:
+                candidate = Path(staging) / "omamail"
+                os.symlink(str(BINARY), candidate)
+                os.replace(candidate, link)
     elif link.exists():
         raise Refused("CLI path belongs to another installation.")
     elif enable:
@@ -330,11 +374,11 @@ def cli_installed():
 
 
 def run(command):
-    result = dict(state="error", requiredVersion="", requiredApiVersion=0, installedVersion="", executable=str(BINARY), error="", cliInstalled=False)
+    result = dict(state="error", requiredVersion="", requiredApiVersion=0, latestApiVersion=0, unreleasedMethods=[], installedVersion="", executable=str(BINARY), error="", cliInstalled=False)
     try:
         required = pin()
         result["requiredVersion"] = required
-        result["requiredApiVersion"] = api_pin()
+        result["requiredApiVersion"], result["latestApiVersion"], result["unreleasedMethods"] = api_pin()
         development = os.environ.get("OMAMAIL_BIN", "")
         executable = Path(development) if development else BINARY
         result["executable"] = str(executable)
@@ -362,7 +406,7 @@ def run(command):
                     result["requiredVersion"] = required
                 elif command == "uninstall":
                     safe_path(BINARY)
-                    local_build = ROOT / "runtime/local-build.json"
+                    local_build = LOCAL_BUILD
                     safe_path(local_build)
                     local_build.unlink(missing_ok=True)
                     BINARY.unlink(missing_ok=True)

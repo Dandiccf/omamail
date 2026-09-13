@@ -17,6 +17,7 @@ Column {
   property string colorEditingId: ""
 
   function discoverableAccounts() {
+    if (!root.service || root.service.backendCanDiscoverCalendars !== true) return []
     var accounts = root.service && Array.isArray(root.service.accountSummaries)
       ? root.service.accountSummaries : []
     return accounts.filter(function(account) {

@@ -69,6 +69,25 @@ fn microsoft_calendar_identity_is_one_encoded_path_segment() {
 }
 
 #[test]
+fn empty_microsoft_calendar_identity_keeps_the_default_calendar() {
+    let request = prepare(&json!({
+        "source":{"kind":"microsoft","calendarId":""},
+        "operation":"list","start":"2026-09-01T00:00:00Z","end":"2026-10-01T00:00:00Z"
+    }))
+    .unwrap();
+    assert_eq!(request.url.path(), "/v1.0/me/calendarView");
+    for id in [".", ".."] {
+        assert!(
+            prepare(&json!({
+                "source":{"kind":"microsoft","calendarId":id},
+                "operation":"list","start":"a","end":"b"
+            }))
+            .is_err()
+        );
+    }
+}
+
+#[test]
 fn icloud_calendar_refuses_non_apple_destinations_before_credentials() {
     assert!(
         prepare(&json!({
@@ -86,6 +105,18 @@ fn icloud_calendar_refuses_non_apple_destinations_before_credentials() {
         }))
         .is_ok()
     );
+}
+
+#[tokio::test]
+async fn icloud_refusal_never_contacts_an_untrusted_target() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("https://{}/calendar/", listener.local_addr().unwrap());
+    let result = call(&json!({
+        "source":{"kind":"icloud","accountId":"imap:missing@icloud.com","url":url},
+        "operation":"list","body":"synthetic report"
+    }), None).await;
+    assert_eq!(result, Err("calendar_origin_refused"));
+    assert!(tokio::time::timeout(Duration::from_millis(50), listener.accept()).await.is_err());
 }
 
 #[test]

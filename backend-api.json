@@ -1,5 +1,6 @@
 {
   "apiVersion": 3,
+  "releasedApiVersion": 2,
   "protocolVersion": 1,
   "methods": [
     "system.info",
@@ -176,6 +177,15 @@
   ],
   "contractCases": [
     {
+      "name": "iCloud request refuses an external credential origin",
+      "method": "calendar.request",
+      "params": {
+        "source": {"kind": "icloud", "accountId": "imap:missing@icloud.com", "url": "https://example.org/calendar/"},
+        "operation": "list", "body": "report"
+      },
+      "errorCode": -32000
+    },
+    {
       "name": "strict calendar discovery parameters",
       "method": "calendar.discover",
       "params": {},
@@ -247,7 +257,7 @@
         "now": 1700000000000
       },
       "equals": {
-        "body.text": "Hello 合成",
+        "body.text": "Hello \u5408\u6210",
         "summary.subject": "API fixture",
         "summary.id": "fixture"
       },
@@ -338,6 +348,56 @@
       "equals": {
         "": null
       }
+    },
+    {
+      "name": "event look projection",
+      "method": "agent.jobsProjection",
+      "params": {
+        "jobs": [
+          {
+            "id": "look-run",
+            "accountId": "contract-account",
+            "kind": "events",
+            "messageId": "43",
+            "messageIds": [
+              "43"
+            ],
+            "state": "running",
+            "createdOrder": 3
+          },
+          {
+            "id": "look-done",
+            "accountId": "contract-account",
+            "kind": "events",
+            "messageId": "42",
+            "messageIds": [
+              "42"
+            ],
+            "state": "done",
+            "createdOrder": 2,
+            "events": [
+              {
+                "title": "Dinner",
+                "startMs": 1789232400000,
+                "endMs": 1789239600000,
+                "allDay": false
+              }
+            ]
+          }
+        ],
+        "accountId": "contract-account",
+        "seenIds": []
+      },
+      "equals": {
+        "activeEventLooks": 1,
+        "eventLooks.contract-account.43.id": "look-run",
+        "eventLooks.contract-account.42.events.0.title": "Dinner",
+        "attention": false
+      }
     }
-  ]
+  ],
+  "unreleased": {
+    "methods": ["outlook.connectionCheck", "calendar.discover"],
+    "cases": ["missing Outlook connection", "strict calendar discovery parameters", "iCloud request refuses an external credential origin"]
+  }
 }

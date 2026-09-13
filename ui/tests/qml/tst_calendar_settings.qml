@@ -16,6 +16,7 @@ Item {
     property int undoSendSeconds: 10
     property int settingChanges: 0
     property var accountSummaries: []
+    property bool backendCanDiscoverCalendars: true
     property var auth: null
 
     function setUnifiedCalendarView(value) {
@@ -72,6 +73,7 @@ Item {
 
     function init() {
       mailService.accountSummaries = []
+      mailService.backendCanDiscoverCalendars = true
       calendarController.sourceList = ({ version: 1, sources: [] })
       calendarController.discoverCalls = 0
       calendarController.toggleCalls = 0
@@ -134,6 +136,14 @@ Item {
       compare(calendarController.coloredId, "icloud:one")
       compare(calendarController.selectedColor, "blue")
       compare(picker.visible, false)
+    }
+    function test_old_backend_does_not_offer_discovery() {
+      mailService.accountSummaries = [{ id: "imap:person@icloud.com",
+        email: "person@icloud.com", calendarProvider: "icloud", signedIn: true }]
+      mailService.backendCanDiscoverCalendars = false
+      wait(1)
+      compare(findChild(settings, "calendar-discover-icloud"), null)
+      compare(calendarController.discoverCalls, 0)
     }
   }
 }

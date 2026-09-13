@@ -37,19 +37,46 @@ class ReleaseTests(unittest.TestCase):
         (self.root / 'Cargo.lock').write_text('[[package]]\nname = "omamail"\nversion = "0.8.1"\n')
         self.assertNotEqual(self.run_helper('check', '--root', self.root).returncode, 0)
 
+    def test_release_pr_gate_requires_published_version_before_merge(self):
+        # Execute the actual workflow guard: removing or weakening it must let
+        # the pre-publication release PR reach the forbidden merge marker.
+        self.metadata()
+        (self.root / 'scripts').mkdir()
+        (self.root / 'scripts/package-backend.py').write_bytes((ROOT / 'scripts/package-backend.py').read_bytes())
+        lines = (ROOT / '.github/workflows/ci.yml').read_text().splitlines()
+        start = next(i for i, line in enumerate(lines) if 'case "$SOURCE_BRANCH" in' in line)
+        end = next(i for i in range(start, len(lines)) if lines[i].strip() == 'esac')
+        guard = '\n'.join(line.strip() for line in lines[start:end + 1])
+        marker = self.root / 'merge-allowed'
+        for branch, pin, allowed in [('release/0.8.2', '0.8.1', False),
+                                     ('release/0.8.2', '0.8.2', True),
+                                     ('feature', '0.8.1', True), ('main', '0.8.1', True)]:
+            with self.subTest(branch=branch, pin=pin):
+                (self.root / 'backend-version').write_text(pin + '\n')
+                marker.unlink(missing_ok=True)
+                result = subprocess.run(['bash', '-c', 'set -euo pipefail\n' + guard + '\ntouch merge-allowed'],
+                                        cwd=self.root, env=dict(os.environ, SOURCE_BRANCH=branch),
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode == 0, allowed, result.stderr)
+                self.assertEqual(marker.exists(), allowed)
+
     def api_fixture(self):
         self.metadata()
         backend = self.root / 'src/backend'
         backend.mkdir(parents=True)
         (backend / 'methods.rs').write_text('pub const ALL: &[&str] = &["system.info"];')
-        contract = {'apiVersion': 1, 'protocolVersion': 1, 'methods': ['system.info'],
+        contract = {'apiVersion': 1, 'releasedApiVersion': 1, 'protocolVersion': 1, 'methods': ['system.info'],
                     'contractCases': [{'name': 'handshake', 'method': 'system.info',
-                                       'params': {}, 'types': {'name': 'string'}}]}
+                                       'params': {}, 'types': {'name': 'string'}}],
+                    'unreleased': {'methods': [], 'cases': []}}
         self.api = self.root / 'backend-api.json'
         self.api.write_text(json.dumps(contract))
         self.published = self.root / 'published-api.json'
         self.published.write_text(json.dumps(contract, indent=2, sort_keys=True))
         return contract
+
+    def check_api(self, *args):
+        return self.run_helper('check-api', '--root', self.root, *args)
 
     def test_internal_rust_versions_and_source_can_reuse_pin_and_api(self):
         self.api_fixture()
@@ -66,18 +93,58 @@ class ReleaseTests(unittest.TestCase):
         contract = self.api_fixture()
         methods = self.root / 'src/backend/methods.rs'
         methods.write_text('pub const ALL: &[&str] = &["system.info", "message.new"];')
-        self.assertNotEqual(self.run_helper('check-api', '--root', self.root).returncode, 0)
+        self.assertNotEqual(self.check_api().returncode, 0)
         contract['methods'].append('message.new')
         self.api.write_text(json.dumps(contract))
-        self.assertEqual(self.run_helper('check-api', '--root', self.root).returncode, 0)
-        self.assertNotEqual(self.run_helper('check-api', '--root', self.root,
-                                           '--published', self.published).returncode, 0)
-        self.assertNotEqual(self.run_helper('check-api', '--root', self.root,
-                                           '--baseline', self.published).returncode, 0)
+        # A new method on the released version's contract is a lie about the
+        # pinned binary: it has to be named unreleased, one step ahead.
+        self.assertEqual(self.check_api().returncode, 0, 'the inventory agrees; only the published binary can say more')
+        self.assertNotEqual(self.check_api('--published', self.published).returncode, 0)
+        self.assertNotEqual(self.check_api('--baseline', self.published).returncode, 0)
         contract['apiVersion'] = 2
         self.api.write_text(json.dumps(contract))
-        result = self.run_helper('check-api', '--root', self.root, '--baseline', self.published)
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotEqual(self.check_api('--published', self.published).returncode, 0, 'a step ahead names what it adds')
+        contract['unreleased']['methods'] = ['message.new']
+        self.api.write_text(json.dumps(contract))
+        for args in ((), ('--published', self.published), ('--baseline', self.published)):
+            result = self.check_api(*args)
+            self.assertEqual(result.returncode, 0, (args, result.stderr))
+        # Released or not, the pinned binary and the checkout agree on what it
+        # speaks; a third step is refused until the second ships.
+        contract['apiVersion'] = 3
+        self.api.write_text(json.dumps(contract))
+        self.assertNotEqual(self.check_api().returncode, 0)
+        contract['apiVersion'] = 2
+        contract['unreleased']['methods'] = ['nope.method']
+        self.api.write_text(json.dumps(contract))
+        self.assertNotEqual(self.check_api().returncode, 0)
+
+    def test_unreleased_cases_follow_their_methods_and_a_release_folds_them(self):
+        contract = self.api_fixture()
+        methods = self.root / 'src/backend/methods.rs'
+        methods.write_text('pub const ALL: &[&str] = &["system.info", "message.new"];')
+        contract['methods'].append('message.new')
+        contract['contractCases'].append({'name': 'new', 'method': 'message.new', 'params': {}, 'types': {'ok': 'boolean'}})
+        contract['apiVersion'] = 2
+        contract['unreleased'] = {'methods': ['message.new'], 'cases': []}
+        self.api.write_text(json.dumps(contract))
+        self.assertNotEqual(self.check_api().returncode, 0, 'a case on an unreleased method is unreleased')
+        contract['unreleased']['cases'] = ['new']
+        self.api.write_text(json.dumps(contract))
+        self.assertEqual(self.check_api('--published', self.published).returncode, 0)
+        # The published contract of the new release carries the step; once it
+        # is pinned the checkout's released API is the whole contract again.
+        self.published.write_text(json.dumps(contract))
+        self.assertNotEqual(self.check_api('--published', self.published).returncode, 0,
+                            'the checkout still calls the step unreleased')
+        folded = dict(contract, releasedApiVersion=2, unreleased={'methods': [], 'cases': []})
+        self.api.write_text(json.dumps(folded))
+        self.assertEqual(self.check_api('--published', self.published).returncode, 0)
+        # An old published contract, from before the split had a name, is read
+        # as all released.
+        self.published.write_text(json.dumps({'apiVersion': 2, 'protocolVersion': 1, 'methods': contract['methods'],
+                                              'contractCases': contract['contractCases']}))
+        self.assertEqual(self.check_api('--published', self.published).returncode, 0)
 
     def test_response_contract_changes_require_revision_bump(self):
         contract = self.api_fixture()
@@ -89,14 +156,20 @@ class ReleaseTests(unittest.TestCase):
             self.assertNotEqual(self.run_helper('check-api', '--root', self.root,
                                                mode, self.published).returncode, 0)
         contract['apiVersion'] = 2
+        contract['unreleased']['cases'] = ['handshake']
         self.api.write_text(json.dumps(contract))
-        self.assertEqual(self.run_helper('check-api', '--root', self.root,
-                                         '--baseline', self.published).returncode, 0)
+        self.assertNotEqual(self.check_api('--baseline', self.published).returncode, 0,
+                            'the released view lost its only case, which the pinned binary speaks')
+        contract['contractCases'].append({'name': 'handshake-next', 'method': 'system.info', 'params': {}, 'types': {'version': 'string'}})
+        contract['contractCases'][0]['types'].pop('version')
+        contract['unreleased']['cases'] = ['handshake-next']
+        self.api.write_text(json.dumps(contract))
+        self.assertEqual(self.check_api('--baseline', self.published).returncode, 0)
 
     def test_api_revisions_and_pin_require_canonical_values(self):
         contract = self.api_fixture()
         for value in (True, 0, -1, '1', 1.5, 2147483648):
-            for field in ('apiVersion', 'protocolVersion'):
+            for field in ('apiVersion', 'releasedApiVersion', 'protocolVersion'):
                 with self.subTest(field=field, value=value):
                     invalid = dict(contract, **{field: value})
                     self.api.write_text(json.dumps(invalid))
@@ -334,22 +407,35 @@ class ReleaseTests(unittest.TestCase):
         git('init', '-q')
         git('config', 'user.name', 'Test')
         git('config', 'user.email', 'test@example.invalid')
-        git('checkout', '-b', 'feature')
+        # The release being pinned carries an unreleased step; the pin folds it.
+        contract = {'apiVersion': 2, 'releasedApiVersion': 1, 'protocolVersion': 1,
+                    'methods': ['system.info', 'message.new'],
+                    'contractCases': [{'name': 'handshake', 'method': 'system.info', 'params': {}, 'types': {'name': 'string'}}],
+                    'unreleased': {'methods': ['message.new'], 'cases': []}}
+        (self.root / 'backend-api.json').write_text(json.dumps(contract, indent=2) + '\n')
+        git('checkout', '-b', 'release/0.8.2')
         git('add', '.')
         git('commit', '-qm', 'prepare')
         prepared = git('rev-parse', 'HEAD')
         remote = self.root / 'remote.git'
         subprocess.run(['git', 'init', '--bare', '-q', str(remote)], check=True)
         git('remote', 'add', 'origin', str(remote))
-        git('push', 'origin', 'HEAD:feature', 'HEAD:main')
-        result = self.run_helper('pin', '--root', self.root, '--branch', 'feature', '--expected', prepared)
+        git('push', 'origin', 'HEAD:release/0.8.2', 'HEAD:main')
+        result = self.run_helper('pin', '--root', self.root, '--branch', 'main', '--expected', prepared)
+        self.assertNotEqual(result.returncode, 0, 'pin must never write directly to main')
+        self.assertEqual((self.root / 'backend-version').read_text(), '0.8.1\n')
+        result = self.run_helper('pin', '--root', self.root, '--branch', 'release/0.8.2', '--expected', prepared)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(git('diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD'), 'backend-version')
+        self.assertEqual(git('diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD'), 'backend-api.json\nbackend-version')
         self.assertEqual(git('ls-remote', 'origin', 'refs/heads/main').split()[0], prepared)
         self.assertEqual((self.root / 'backend-version').read_text(), '0.8.2\n')
+        folded = json.loads((self.root / 'backend-api.json').read_text())
+        self.assertEqual(folded['releasedApiVersion'], 2)
+        self.assertEqual(folded['unreleased'], {'methods': [], 'cases': []})
+        self.assertEqual(folded['methods'], contract['methods'])
         # Restore the old checkout without touching the remote's newer revision.
         git('checkout', '--detach', prepared)
-        result = self.run_helper('pin', '--root', self.root, '--branch', 'feature', '--expected', prepared)
+        result = self.run_helper('pin', '--root', self.root, '--branch', 'release/0.8.2', '--expected', prepared)
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual((self.root / 'backend-version').read_text(), '0.8.1\n')
         self.assertEqual(git('rev-parse', 'HEAD'), prepared)

@@ -10,6 +10,7 @@ Item {
     id: mailService
 
     property var requests: []
+    property bool backendCanDiscoverCalendars: true
     property var discoveryCallback: null
     property var backend: ({ ready: false, call: function(method, params, callback) {
       mailService.requests.push({ method: method, params: params })
@@ -57,6 +58,7 @@ Item {
       // the function, so a restore on its last line does not run and one real
       // failure becomes a cascade that hides it.
       mailService.requests = []
+      mailService.backendCanDiscoverCalendars = true
       mailService.discoveryCallback = null
       mailService.backend.ready = false
       mailService.accountSummaries = [
@@ -127,6 +129,36 @@ Item {
         accountId: "imap:person@icloud.com", calendars: [] }, null)
       compare(controller.savingSource, false)
       compare(controller.discoveryError, "Calendars could not be discovered")
+    }
+
+    function test_discovery_on_an_old_backend_makes_no_request_or_settings_write() {
+      mailService.accountSummaries = [{ id: "imap:person@icloud.com",
+        calendarProvider: "icloud", signedIn: true }]
+      mailService.backend.ready = true
+      mailService.backendCanDiscoverCalendars = false
+      compare(controller.discoverAccountCalendars("imap:person@icloud.com"), false)
+      compare(mailService.requests.length, 0)
+      compare(controller.savingSource, false)
+      compare(controller.discoveringCalendars, false)
+    }
+    function test_old_backend_never_reads_or_writes_a_discovered_calendar_as_default() {
+      mailService.backendCanDiscoverCalendars = false
+      var sources = [{kind: "microsoft", calendarId: "other-calendar"}, {kind: "icloud"}]
+      var operations = ["list", "create", "update", "delete"]
+      var replies = 0
+      for (var s = 0; s < sources.length; s++) {
+        for (var op = 0; op < operations.length; op++) {
+          controller.nativeRequest(sources[s], operations[op], {}, function(result, error) {
+            compare(result, null)
+            compare(error, "Update the backend to access this calendar")
+            replies++
+          })
+        }
+      }
+      compare(replies, 8)
+      compare(mailService.requests.length, 0)
+      controller.nativeRequest({kind: "microsoft", calendarId: ""}, "list", {}, function() {})
+      compare(mailService.requests.length, 1, "the established default calendar still works")
     }
 
     function sourceIds(list) {
