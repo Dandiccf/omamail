@@ -1,7 +1,9 @@
 # Plugin-owned backend
 
 Omarchy's Plugin Marketplace owns the checkout and its UI. Omamail keeps exactly
-one executable at `<plugin root>/runtime/bin/omamail`. The root `backend-version`
+one executable at `${XDG_DATA_HOME:-~/.local/share}/omamail/bin/omamail`. Keeping
+the mutable runtime outside the recursively watched plugin tree prevents an
+installation or CLI operation from reloading the interface. The root `backend-version`
 file requires an exact version, independent of PATH and system packages. Service
 starts one persistent `omamail serve` process over stdin/stdout and checks its
 exact binary version, protocol and API revision before dispatching migrated calls.
@@ -20,7 +22,8 @@ protect integrity, not against a compromised publisher.
 
 `python3 scripts/backend-runtime.py enable-cli` explicitly creates
 `~/.local/bin/omamail` as a symlink to that same private executable; it refuses
-an unrelated file or link. Nothing edits PATH. Run `disable-cli` before removing
+an unrelated file or link. An owned link into a previous Omamail plugin checkout's
+runtime is repointed without modifying that watched directory. Nothing edits PATH. Run `disable-cli` before removing
 the plugin, since Omarchy has no verified uninstall hook for that external link.
 `scripts/uninstall-backend.sh` removes the runtime only. Neither operation deletes
 accounts, drafts, caches or keyring entries. Marketplace checkouts contain no
@@ -55,26 +58,55 @@ QML presentation changes can likewise reuse the existing backend.
 
 The contract records the public method inventory and representative request/response
 fixtures. Changes to methods, accepted parameters, returned fields, errors or their
-meaning require contract review, updated fixtures and a higher API revision. Even an
-additive method needs a release before QML can depend on it. Maintain backwards
-compatibility where practical, but never use it as a reason to silently replace an
-old plugin's binary. `system.info.apiVersion` states the API revision. The initial
-published binary 0.9.0 predates this field; only that exact version is recognized as
-legacy API 1. Missing revision information from any other version is refused.
+meaning require contract review, updated fixtures and a higher API revision.
+`system.info.apiVersion` states the API revision. The initial published binary 0.9.0
+predates this field; only that exact version is recognized as legacy API 1. Missing
+revision information from any other version is refused.
+
+## Released and unreleased: one step ahead of the pin
+
+Backends ship in batches, not per merge, so `main` may implement an API the pinned
+binary does not have yet. The contract names that difference and nothing more:
+
+- `releasedApiVersion` is the API the pinned, published binary speaks; the runtime
+  handshake accepts exactly that. `apiVersion` is what this checkout's Rust
+  implements, equal to it or **one step ahead** — a second step is refused by
+  `check-api` until the first is released, which is what makes releases batches.
+- `unreleased.methods` and `unreleased.cases` name what the step adds: methods
+  only the step has, and contract cases only a binary from this checkout passes.
+  A case on an unreleased method is itself unreleased. With `apiVersion` equal to
+  `releasedApiVersion` both lists are empty.
+- CI runs two gates on every revision, and the required check needs both. The
+  **Released backend gate** downloads the pinned release and checks that its
+  contract equals the checkout's released view (`check-api --published`), then
+  runs the released view of the fixtures against that binary
+  (`test_backend_api.py --released`). The **Unreleased API gate** builds the
+  backend from the revision and runs the whole contract and the native agent
+  bridge against it. A merge into `main` can therefore carry an unreleased step
+  and still leave every fresh install working. A failed gate leaves a note,
+  and `ci-report.yml` — run after CI, with the one write permission the CI run
+  of a fork cannot have — posts it on the PR as a comment saying which gate
+  failed and what to do, updating the same comment on every push.
+- The plugin's runtime status reports `latestApiVersion` and `unreleasedMethods`
+  beside the required revision. `Backend` exposes `needsUpdate` when the
+  connected binary lacks the step, and refuses a call to an unreleased method on
+  it with `backend_needs_update` (code -32012) — so a feature that forgot to
+  look before asking fails the way it already handles, never as a request the old
+  binary would misread. `Service.backendNeedsUpdate` is an overall update indicator, not a per-feature gate. A feature checks the connected backend against the fixed API revision that introduced it: event suggestions use `Service.backendCanSuggestEvents`, true only for a ready backend with API 2 or newer. That requirement remains correct before release, after the pin advances, and when a later unrelated API is introduced.
+- `tests/test_source.sh` permits calls only to declared backend methods. QML regression tests exercise fixed feature requirements across connected API versions and changing release metadata; a release must not require deleting compatibility checks from QML.
+- The pin commit made by a release folds the step: `releasedApiVersion` becomes
+  `apiVersion`, both `unreleased` lists empty. Published contracts from before
+  the split are read as all released.
 
 ## Release before pin
 
-Prepare a new version with `scripts/bump.sh MAJOR.MINOR.PATCH`. This edits only
-Cargo.toml, the omamail Cargo.lock record and manifest.json. It does not commit,
-tag, push or advance backend-version. Review and test the changes, then commit
-and push the explicit source branch. For the first release before this workflow
-is registered on main, use a branch named `release/backend/<name>`: pushing that
-explicit release branch triggers publication. Ordinary feature branches do not
-publish automatically. Merge the resulting branch including its bot pin commit,
-or review and carry that pin-only commit into the original PR after its actual
-published-asset checks pass. Future releases can dispatch Release on main or an
-explicit feature branch. A push changing only backend-version does not retrigger
-publication, so the bot's pin commit cannot recurse.
+Run `make publish VERSION=MAJOR.MINOR.PATCH` on a clean main synchronized with origin. Without `VERSION`, it prepares the next patch version. The command creates `release/X.Y.Z`, prepares Cargo.toml, the omamail Cargo.lock record and manifest.json, and opens one PR targeting main. It pushes only that release branch, then follows its exact Release run. It never pushes main or a tag. `backend-version` and the released API contract stay unchanged during preparation.
+
+A push to `release/**` starts Release. Only the exact `release/X.Y.Z` branch matching Cargo's version is accepted; dispatching on main, a feature branch or a tag is refused. CI builds both backends, creates `vX.Y.Z` and publishes the assets, verifies the public downloads, then commits `backend-version` and the folded API contract on the same release branch. The pin commit changes only those two files, both excluded from the publication push trigger, so it starts PR checks without another publication.
+
+The required **Published backend merge gate** refuses a release PR until its pin equals the prepared version, then verifies the actual released binaries and contract as usual. Once the pin commit and required checks pass, review and merge that PR once: main receives the version metadata and working backend dependency together. The command does not merge automatically. Features wait until the connected backend meets their fixed minimum API revision, independently of whether that revision is currently labelled released or unreleased.
+
+The repository's active main ruleset requires a PR and the Published backend merge gate and prohibits deletion and force pushes. Administrators currently have a pull-request-only bypass: direct pushes remain blocked, but an administrator can explicitly bypass checks when merging a PR. Never enable an always-on bypass or use the PR bypass for routine releases; neither a local push nor CI should advance main directly.
 
 The workflow tests and builds locked native musl binaries on Linux x86_64 and
 aarch64, executes each version probe, rejects dynamic ELF dependencies, and
@@ -86,7 +118,7 @@ release: a changed contract requires a higher API revision. Each native binary
 must also pass the contract runner before packaging.
 Both native build jobs produce identical source fingerprints before publication. The new draft
 release is completed, made public, downloaded again and verified before a
-follow-up commit changes only backend-version on the release's source branch.
+follow-up commit updates backend-version and folds backend-api.json on the release branch.
 
 Publication is serialized. Existing releases and tags are never overwritten;
 remote lookup errors fail closed. The branch must still equal the dispatch
@@ -94,15 +126,9 @@ revision before publication and before the pin commit. A normal fast-forward
 push rejects concurrent movement; there is no force push or branch-protection
 bypass. If publication succeeds but the branch moves or rejects the pin push,
 the release remains published and the pin stays unchanged. Inspect that failure
-and verify the already-published assets before preparing a reviewed pin-only
-change; rerunning publication refuses the existing version.
+and verify the already-published assets before preparing a reviewed pin-only change on the same release PR; rerunning publication refuses the existing version. If the branch push succeeded but PR creation failed, open the PR for that existing branch instead of invoking publish again. If tag creation succeeded but publication failed, inspect the retained tag and any draft; never delete or reuse a published version. Prepare a new release version when the existing attempt cannot be safely completed.
 
-Repository setup must provide `RELEASE_TOKEN`, an appropriately scoped GitHub
-App token or fine-grained token with contents write permission for this repo,
-permitted by branch rules. The default GITHUB_TOKEN cannot be used for the pin
-push because it suppresses subsequent workflow triggers. Release runs only by
-explicit dispatch or a push to `release/backend/**` of trusted code; restrict
-write access to these release branches. PR CI has read-only permissions and never
+Repository setup must provide `RELEASE_TOKEN`, an appropriately scoped GitHub App token or fine-grained token with contents write permission for this repo, permitted to push release branches and create tags and releases. Local `gh` needs permission to push the branch and open its PR. The default GITHUB_TOKEN cannot be used for the pin push because it suppresses subsequent workflow triggers. See [GitHub's workflow triggering rules](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow). Release runs only on versioned release branches, by push or explicit dispatch; restrict who can push these trusted branches and tags. PR CI has read-only permissions and never
 receives that secret. Require **Published backend merge gate** in branch
 protection. That check reads the plugin's exact pin independently of Cargo's
 current development version, verifies both published native archives, compares the
@@ -117,15 +143,19 @@ not require future PRs to contain identical Rust source. Cargo and Cargo.lock mu
 still agree for builds, but their development version need not equal the pinned
 published binary.
 
-For a combined QML/Rust PR requiring an API change: update the API revision and
-contract fixtures, test locally, prepare a new binary version and publish it from
-the trusted PR source, then advance `backend-version` after verification. The
-required merge check must pass before merging. Publishing after merging would
-leave plugin users exposed to the mismatch. Runtime handshake still requires the
-exact plugin-local binary pin, even when a newer release reports the same API.
+For a combined QML/Rust PR requiring an API change: raise `apiVersion` one step
+past `releasedApiVersion`, name the new methods and cases under `unreleased`, and
+let the feature wait until the connected backend reaches that feature's fixed minimum API revision. Both gates run on the PR and
+it merges into `main` without a release; the next release from `main` publishes
+the binary and its pin commit folds the step. Runtime handshake still requires the
+exact plugin-local binary pin, even when a newer release reports the same API; at
+that version it accepts the released API or the one unreleased step, so a local
+build of the checkout (`make install`) runs the step in the desktop while the
+published binary of the same version keeps working without it.
 
-The contract runner currently exercises 13 methods and checks the full advertised
-inventory. It covers representative mail processing and cached reader behavior,
+The contract runner exercises the contract's cases and checks the advertised
+inventory — the released view against the pinned binary, everything against a
+binary built from the checkout. It covers representative mail processing and cached reader behavior,
 not every provider operation or every possible QML argument. API reviewers must
 extend fixtures for newly used behavior; passing these tests is not a proof of
 complete semantic compatibility. Contract fixtures, API revisions, workflows and
@@ -158,9 +188,10 @@ binary instead of testing the missing-runtime screen.
 To try the latest checkout in the desktop, run `make install`. It first builds
 with `cargo build --locked --release` into this checkout's `target/` directory,
 regardless of `CARGO_TARGET_DIR`, then stages and verifies that binary before
-atomically replacing `runtime/bin/omamail`. When its version is ahead of the
+atomically replacing `${XDG_DATA_HOME:-~/.local/share}/omamail/bin/omamail`. When its version is ahead of the
 release pin, it must match the Git checkout's Cargo package version. The explicit
-local installation records a private `runtime/local-build.json` marker binding
+local installation records a private
+`${XDG_DATA_HOME:-~/.local/share}/omamail/local-build.json` marker binding
 that version, the current release pin and the installed binary's SHA-256.
 Status and CLI activation accept this local version only while the checkout,
 Cargo version, pin and binary bytes still match. No tracked pin is changed.

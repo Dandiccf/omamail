@@ -10,6 +10,13 @@ Item {
   required property string executable
   required property string expectedVersion
   property int expectedApiVersion: 0
+  // The step the checkout is ahead of the pin by, if any: `needsUpdate` says
+  // the connected binary lacks it, and a call to one of its methods is
+  // refused here rather than sent to a binary that never heard of it.
+  property int latestApiVersion: 0
+  property var unreleasedMethods: []
+  readonly property int apiVersion: Compatibility.connectedApiVersion(protocolInfo)
+  readonly property bool needsUpdate: ready && Compatibility.needsUpdate(protocolInfo, latestApiVersion)
   property bool launchEnabled: true
   onLaunchEnabledChanged: Qt.callLater(reconcileProcess)
   onExecutableChanged: Qt.callLater(reconcileProcess)
@@ -40,6 +47,7 @@ Item {
 
   signal shutdownComplete(var error)
   signal notification(string method, var params)
+  signal requestFailed(string method, var error)
 
   function parseMessage(raw, callback) {
     Upload.parse(raw, function(method, params, done) {
@@ -76,7 +84,11 @@ Item {
   }
 
   function request(method, params, callback, internal) {
-    var done = typeof callback === "function" ? callback : function() {}
+    var operation = method === "request.upload" && params ? params.method : method
+    var done = function(result, error) {
+      if (error) root.requestFailed(operation, error)
+      if (typeof callback === "function") callback(result, error)
+    }
     var message = Compatibility.dispatchError(
       connected, ready, stopping, method, internal)
     if (message !== null) {
@@ -87,9 +99,14 @@ Item {
       done(null, { code: -32011, message: "Too many pending requests" })
       return
     }
+    var operation = method === "request.upload" && params ? params.method : method
+    var refusal = Compatibility.unreleasedRefusal(operation, unreleasedMethods, needsUpdate)
+    if (refusal !== null) {
+      done(null, refusal)
+      return
+    }
     var id = "qml-" + (++sequence)
     var next = Object.assign({}, pending)
-    var operation = method === "request.upload" && params ? params.method : method
     var timeout = operation === "agent.context" ? 65000 : 30000
     next[id] = { callback: done, deadline: Date.now() + timeout }
     pending = next
@@ -248,7 +265,7 @@ Item {
       }
       root.failure = ""
       root.request("system.info", {}, function(info, error) {
-        if (error || !Compatibility.accepts(info, root.expectedVersion, root.expectedApiVersion))
+        if (error || !Compatibility.accepts(info, root.expectedVersion, root.expectedApiVersion, root.latestApiVersion))
           root.stopForFailure("Incompatible backend")
         else root.protocolInfo = info
       }, true)

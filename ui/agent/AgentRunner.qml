@@ -18,6 +18,11 @@ Item {
   property var seenIds: []
   property bool attention: false
   property var attentionByMessage: ({})
+  // Looks for events by account and message — running or finished — and how
+  // many are running: a look draws no row, so it is read from here and not
+  // from byMessage.
+  property var eventLooks: ({})
+  property int activeEventLooks: 0
   property int projectionSerial: 0
   property var pendingJobs: null
   function acknowledge(jobId) {
@@ -26,6 +31,10 @@ Item {
   }
   signal jobFinished(var job)
   signal failed(string text)
+  // A start that Rust refused, by its code, for a caller that asked quietly:
+  // a background look has nobody to tell and must not put an error on the
+  // status line every time a message opens.
+  signal startRefused(string code)
 
   property string lastError: ""
   property bool starting: false
@@ -84,6 +93,8 @@ Item {
       root.finishedIds = result.finishedIds || []
       root.attention = result.attention === true
       root.attentionByMessage = result.attentionByMessage || ({})
+      root.eventLooks = result.eventLooks || ({})
+      root.activeEventLooks = Number(result.activeEventLooks) || 0
       root.pendingJobs = null
       root.jobs = next
       var news = result.newlyFinished || []
@@ -93,6 +104,7 @@ Item {
   onAccountIdChanged: {
     byMessage = ({})
     attentionByMessage = ({})
+    eventLooks = ({})
     projectJobs()
   }
   onSeenIdsChanged: projectJobs()
@@ -114,7 +126,7 @@ Item {
   function wantsAttention(job) { return !!job && attentionIds.indexOf(String(job.id)) >= 0 }
   function isActive(job) { return !!job && activeIds.indexOf(String(job.id)) >= 0 }
 
-  function start(payloadLine) {
+  function start(payloadLine, quiet) {
     if (!available()) { lastError = "Mail backend is unavailable"; return false }
     if (starting) { lastError = "AI is still starting. Try again shortly."; return false }
     var payload = payloadLine
@@ -125,8 +137,12 @@ Item {
     request("agent.jobStart", {payload: payload}, function(result, error) {
       root.starting = false
       if (error) {
-        root.lastError = "Could not confirm AI started. Check the conversation before retrying."
-        root.failed(root.lastError)
+        if (quiet === true) {
+          root.startRefused(String(error && error.message ? error.message : error))
+        } else {
+          root.lastError = "Could not confirm AI started. Check the conversation before retrying."
+          root.failed(root.lastError)
+        }
         root.refresh()
         return
       }

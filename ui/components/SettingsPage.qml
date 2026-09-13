@@ -251,6 +251,9 @@ Column {
     width: parent.width
     runtime: root.service ? root.service.backendRuntime || null : null
     backendError: root.service && root.service.backend ? root.service.backend.failure : ""
+    diagnosisAvailable: !!root.service && typeof root.service.diagnoseError === "function"
+    diagnosing: !!root.service && !!root.service.diagnosing
+    onDiagnosisRequested: root.service.diagnoseError()
     textColor: root.textColor
     dimColor: root.dimColor
     accentColor: root.accentColor
@@ -516,6 +519,88 @@ Column {
         DirectionButton { text: Direction.LEFT_TO_RIGHT; mode: Direction.LEFT_TO_RIGHT }
         DirectionButton { text: Direction.RIGHT_TO_LEFT; mode: Direction.RIGHT_TO_LEFT }
       }
+    }
+  }
+
+  // A look at every message opened, on the owner's behalf. Off until it is
+  // turned on, because the message text leaves the window for the system
+  // AI; the switch says in a word which way it stands.
+  Rectangle {
+    objectName: "settings-suggest-events"
+    width: parent.width
+    implicitHeight: Math.max(suggestText.implicitHeight, suggestSwitch.implicitHeight)
+      + Style.space(16)
+    radius: Style.cornerRadius
+    color: Style.normalFillFor(root.textColor, root.accentColor)
+
+    Column {
+      id: suggestText
+      anchors.left: parent.left
+      anchors.leftMargin: Style.space(12)
+      anchors.right: suggestState.left
+      anchors.rightMargin: Style.space(10)
+      anchors.verticalCenter: parent.verticalCenter
+      spacing: Style.space(2)
+
+      Text {
+        width: parent.width
+        text: "Suggest calendar events from mail"
+        color: root.textColor
+        font.family: root.panelFontFamily
+        font.pixelSize: Style.font.bodySmall
+        textFormat: Text.PlainText
+      }
+
+      Text {
+        width: parent.width
+        text: "Uses the system AI: a message from a person that names a time is "
+          + "sent to it once when opened, which spends tokens. Notifications, "
+          + "newsletters and lists are skipped. Nothing is written until you Add."
+        color: root.dimColor
+        font.family: root.panelFontFamily
+        font.pixelSize: Style.font.caption
+        wrapMode: Text.WordWrap
+        textFormat: Text.PlainText
+      }
+
+      // Availability follows the connected backend's API, not release labels.
+      Text {
+        objectName: "suggestEventsNeedsUpdate"
+        width: parent.width
+        visible: !!root.service && !root.service.backendCanSuggestEvents
+        text: "Install or update the backend to use this feature."
+        color: root.accentColor
+        font.family: root.panelFontFamily
+        font.pixelSize: Style.font.caption
+        wrapMode: Text.WordWrap
+        textFormat: Text.PlainText
+      }
+    }
+
+    Text {
+      id: suggestState
+      objectName: "suggestEventsState"
+      anchors.right: suggestSwitch.left
+      anchors.rightMargin: Style.space(8)
+      anchors.verticalCenter: parent.verticalCenter
+      text: suggestSwitch.checked ? "On" : "Off"
+      color: root.dimColor
+      font.family: root.panelFontFamily
+      font.pixelSize: Style.font.caption
+    }
+
+    ToggleSwitch {
+      id: suggestSwitch
+      objectName: "suggestEventsSwitch"
+      anchors.right: parent.right
+      anchors.rightMargin: Style.space(10)
+      anchors.verticalCenter: parent.verticalCenter
+      checked: !!root.service && root.service.suggestEvents === true
+      enabled: !!root.service && root.service.backendCanSuggestEvents
+      opacity: enabled ? 1 : 0.5
+      foreground: root.textColor
+      accent: root.accentColor
+      onToggled: if (root.service) root.service.setSuggestEvents(!root.service.suggestEvents)
     }
   }
 

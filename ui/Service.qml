@@ -6,6 +6,7 @@ import "account"
 import "calendar"
 import "agent"
 import "backend"
+import "diagnostics"
 import "agent/Agent.js" as Agent
 
 import "account/Accounts.js" as Accounts
@@ -53,6 +54,13 @@ Item {
     onValidated: Qt.callLater(rustBackend.reconcileProcess)
   }
   readonly property var backend: rustBackend
+  readonly property bool diagnosing: diagnostics.busy
+  function diagnoseError() { diagnostics.open() }
+  Diagnostics {
+    id: diagnostics
+    pluginDir: root.pluginDir
+    onFailed: function(message) { if (root.current) root.current.fail(message) }
+  }
   Backend {
     id: rustBackend
     // The runtime manager resolves symlinks. Launch its validated path rather
@@ -61,8 +69,17 @@ Item {
     launchEnabled: privateRuntime.state === "ready" && executable !== ""
     expectedVersion: privateRuntime.requiredVersion
     expectedApiVersion: privateRuntime.requiredApiVersion
+    latestApiVersion: privateRuntime.latestApiVersion
+    unreleasedMethods: privateRuntime.unreleasedMethods
     onReadyChanged: root.scheduleUnifiedSnapshot()
+    onRequestFailed: function(method, error) { diagnostics.record(method, error) }
   }
+
+  // Overall update status is diagnostic, not a feature requirement: its
+  // target moves whenever the checkout grows another API revision.
+  readonly property bool backendNeedsUpdate: backend.needsUpdate
+  // Event suggestions require API 2 regardless of when that API is released.
+  readonly property bool backendCanSuggestEvents: backend.ready && backend.apiVersion >= 2
 
   readonly property string pluginId: manifest && manifest.id
     ? String(manifest.id) : "omamail"
@@ -91,7 +108,8 @@ Item {
     undoSendSeconds: 10,
     unifiedCalendarView: false,
     showBarIcon: true,
-    unifiedMailboxes: false
+    unifiedMailboxes: false,
+    suggestEvents: false
   })
   property var settings: defaultSettingValues
   readonly property int undoSendSeconds: Outbox.normalizeDelay(
@@ -113,6 +131,14 @@ Item {
   function agentJobWantsAttention(job) { return agentRunner.wantsAttention(job) }
   function acknowledgeAgentJob(jobId) { agentRunner.acknowledge(jobId) }
   readonly property bool agentBusy: agentRunner.anyActive
+  // Whether a message opened in the reader is handed to the agent to look
+  // for calendar events in. Off until the owner turns it on: the message
+  // text leaves the window for the system AI.
+  readonly property bool suggestEvents: !!settings && settings.suggestEvents === true
+  function setSuggestEvents(value) { persistSetting("suggestEvents", value === true) }
+  readonly property var eventSuggestions: eventSuggester.suggestions
+  function dismissSuggestion(key) { eventSuggester.dismiss(key) }
+  function addSuggestedEvent(suggestion) { return eventSuggester.compose(suggestion) }
 
   function agentJobFor(messageId, accountId) {
     var target = agentTarget(messageId, accountId)
@@ -2305,6 +2331,12 @@ Item {
 
   AgentContext {
     id: agentContext
+    service: root
+    runner: agentRunner
+  }
+
+  EventSuggester {
+    id: eventSuggester
     service: root
     runner: agentRunner
   }

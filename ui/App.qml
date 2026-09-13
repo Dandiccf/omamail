@@ -320,6 +320,13 @@ Item {
     nav = Nav.push(nav, Nav.entry(kind, fields))
   }
 
+  // Going somewhere takes the keyboard back from the search field. A click on
+  // a row or on the rail moves no focus — a MouseArea never does — so after
+  // one click in the field the context stayed "search" with a message open,
+  // and `e` typed itself into the query instead of archiving. The field is
+  // left the way it is submitted: by a navigation, not only by Escape.
+  onNavChanged: if (searchBar.fieldFocused) focusScope.parkKeyboard()
+
   // An overlay whose view has closed, wherever it sits. Usually the top; a
   // draft can also finish under the shortcut sheet, and then the sheet goes
   // with it — it was drawn over a place that no longer exists.
@@ -931,7 +938,7 @@ Item {
   // are drawn from, so the number beside a row and the row a number opens are
   // the same fact rather than two.
   readonly property var sidebarSlots: service
-    ? Model.sidebarSlots(service.mailboxes, service.visibleLabels, 10) : []
+    ? Model.sidebarSlots(service.mailboxes, service.visibleLabels, 9) : []
 
   function goSlot(index) {
     if (!service || index < 0 || index >= sidebarSlots.length) return
@@ -1432,6 +1439,9 @@ Item {
         width: Math.min(parent.width - Style.space(48), Style.space(480))
         runtime: root.service ? root.service.backendRuntime || null : null
         backendError: root.service && root.service.backend ? root.service.backend.failure : ""
+        diagnosisAvailable: !!root.service && typeof root.service.diagnoseError === "function"
+        diagnosing: !!root.service && !!root.service.diagnosing
+        onDiagnosisRequested: root.service.diagnoseError()
         textColor: root.foreground
         dimColor: root.dim
         accentColor: root.accent
@@ -2532,13 +2542,35 @@ Item {
           || (!!root.service
             && (root.service.actionStatus !== "" || root.service.lastError !== ""))
 
-        Text {
-          id: notice
+        IconButton {
+          id: diagnoseErrorButton
+          objectName: "diagnose-error-button"
           anchors.right: parent.right
           anchors.rightMargin: Style.space(14)
           anchors.verticalCenter: parent.verticalCenter
+          visible: !!root.service && root.service.lastError !== ""
+            && typeof root.service.diagnoseError === "function"
+          enabled: visible && !root.service.diagnosing
+          iconName: "agent"
+          iconSize: Style.font.iconSmall
+          size: Style.space(24)
+          foreground: root.urgent
+          accent: root.accent
+          fontFamily: root.fontFamily
+          tooltipText: "Diagnose with AI..."
+          Accessible.role: Accessible.Button
+          Accessible.name: "Diagnose with AI..."
+          onClicked: root.service.diagnoseError()
+        }
+
+        Text {
+          id: notice
+          anchors.right: diagnoseErrorButton.visible ? diagnoseErrorButton.left : parent.right
+          anchors.rightMargin: diagnoseErrorButton.visible ? Style.space(8) : Style.space(14)
+          anchors.verticalCenter: parent.verticalCenter
           visible: statusBar.hasNotice
-          width: Math.min(implicitWidth, parent.width / 2)
+          width: Math.min(implicitWidth, Math.max(0, parent.width / 2
+            - (diagnoseErrorButton.visible ? diagnoseErrorButton.width + Style.space(8) : 0)))
           horizontalAlignment: Text.AlignRight
           textFormat: Text.PlainText
           text: {
