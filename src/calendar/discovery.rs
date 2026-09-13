@@ -13,6 +13,10 @@ use sha2::{Digest, Sha256};
 const DISCOVERY_LIMIT: usize = 4 * 1024 * 1024;
 const MAX_CALENDARS: usize = 256;
 
+#[cfg(test)]
+#[path = "discovery_runtime_tests.rs"]
+mod runtime_tests;
+
 fn account_id(params: &Value) -> Result<&str, &'static str> {
     let fields = params.as_object().ok_or("invalid_params")?;
     if fields.len() != 1 || fields.keys().any(|key| key != "accountId") {
@@ -75,6 +79,14 @@ async fn response_body(mut response: Response) -> Result<String, &'static str> {
 async fn microsoft(account: &str) -> Result<Value, &'static str> {
     crate::auth::settings("outlook", account)?;
     let token = crate::auth::access_token("outlook", account, "graph").await?;
+    microsoft_with_client(super::client()?, account, &token).await
+}
+
+async fn microsoft_with_client(
+    client: &reqwest::Client,
+    account: &str,
+    token: &str,
+) -> Result<Value, &'static str> {
     let origin = Url::parse("https://graph.microsoft.com/v1.0/me/calendars")
         .map_err(|_| "calendar_network_failed")?;
     let mut next = origin.clone();
@@ -87,7 +99,7 @@ async fn microsoft(account: &str) -> Result<Value, &'static str> {
     ]);
     let mut calendars = Vec::new();
     for _ in 0..100 {
-        let response = super::client()?
+        let response = client
             .get(next.clone())
             .bearer_auth(&token)
             .header("Accept", "application/json")
@@ -213,6 +225,17 @@ pub(super) fn icloud_username(account: &str) -> Result<String, &'static str> {
 }
 
 async fn dav_propfind(
+    url: Url,
+    username: &str,
+    password: &str,
+    depth: &str,
+    body: &'static str,
+) -> Result<(Url, String), &'static str> {
+    dav_propfind_with_client(super::client()?, url, username, password, depth, body).await
+}
+
+async fn dav_propfind_with_client(
+    client: &reqwest::Client,
     mut url: Url,
     username: &str,
     password: &str,
@@ -220,7 +243,7 @@ async fn dav_propfind(
     body: &'static str,
 ) -> Result<(Url, String), &'static str> {
     for _ in 0..4 {
-        let response = super::client()?
+        let response = client
             .request(Method::from_bytes(b"PROPFIND").unwrap(), url.clone())
             .basic_auth(username, Some(password))
             .header("Depth", depth)

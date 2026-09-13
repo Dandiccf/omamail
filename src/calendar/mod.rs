@@ -9,16 +9,20 @@ pub use discovery::discover;
 const LIMIT: usize = 16 * 1024 * 1024;
 static CLIENT: OnceLock<Result<Client, &'static str>> = OnceLock::new();
 
+fn client_builder() -> reqwest::ClientBuilder {
+    Client::builder()
+        .https_only(true)
+        .hickory_dns(true)
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(20))
+}
+
 pub(super) fn client() -> Result<&'static Client, &'static str> {
     CLIENT
         .get_or_init(|| {
-            Client::builder()
-                .https_only(true)
-                .hickory_dns(true)
-                .no_proxy()
-                .redirect(reqwest::redirect::Policy::none())
-                .connect_timeout(Duration::from_secs(10))
-                .timeout(Duration::from_secs(20))
+            client_builder()
                 .build()
                 .map_err(|_| "calendar_network_failed")
         })
