@@ -1,6 +1,6 @@
 QMLLINT := /usr/lib/qt6/bin/qmllint
 QML_FILES := ui/Service.qml ui/BarWidget.qml ui/App.qml ui/compose/RecoveryController.qml \
-	ui/backend/Backend.qml ui/backend/Runtime.qml \
+	ui/backend/Backend.qml ui/backend/Runtime.qml ui/diagnostics/Diagnostics.qml \
 	ui/components/BackendSetup.qml ui/components/OmamailLogo.qml \
 	ui/account/MailAccount.qml ui/account/BackendSync.qml ui/account/SendQueue.qml ui/account/Intents.qml ui/account/BatchAction.qml ui/account/Rsvp.qml ui/account/LabelActions.qml ui/account/Unsubscribe.qml ui/account/NewMailNotification.qml \
 	ui/cache/CacheStore.qml ui/cache/BodyCache.qml \
@@ -57,6 +57,7 @@ QML_FILES := ui/Service.qml ui/BarWidget.qml ui/App.qml ui/compose/RecoveryContr
 	ui/components/AddressMenu.qml \
 	ui/components/ComposeAgent.qml \
 	ui/agent/AgentRunner.qml ui/agent/AgentContext.qml \
+	ui/agent/EventSuggester.qml ui/components/EventSuggestionCard.qml \
 	ui/components/AccountRemovalDialog.qml \
 	ui/components/BackBar.qml \
 	ui/components/SettingsPage.qml \
@@ -151,6 +152,7 @@ test-shell: test-shell-portable test-shell-libcurl
 # Everything here drives one of our own scripts against a fake server and
 # asserts what the script did with the answer, so any libcurl can run it.
 test-shell-portable:
+	python3 tests/test_diagnostics.py
 	python3 tests/test_network_migration.py
 	python3 tests/test_plugin_workflow.py
 	python3 tests/test_backend_runtime.py
@@ -180,6 +182,9 @@ test-shell-portable:
 	bash tests/test_calendar_write.sh
 	bash tests/test_calendar_delete.sh
 	bash tests/test_release_notes.sh
+	bash tests/test_publish.sh
+	python3 tests/test_publish_backend.py
+	bash tests/test_release_source.sh
 
 # This one asserts libcurl's own behaviour rather than ours: which of its two
 # output channels a single-UID BODY.PEEK fetch arrives on. That is a property
@@ -243,3 +248,9 @@ install: install-backend-local
 install-plugin:
 	python3 scripts/backend-runtime.py uninstall
 	bash scripts/link-plugin.sh
+
+# Prepare release/X.Y.Z and its PR; CI publishes, verifies, then updates its pin.
+# VERSION defaults to the next patch. Main changes only when the PR is merged.
+.PHONY: publish
+publish:
+	bash scripts/publish.sh "$(VERSION)"

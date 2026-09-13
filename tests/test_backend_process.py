@@ -50,7 +50,8 @@ Scope {
     id: backend
     executable: __BINARY__
     expectedVersion: __VERSION__
-    expectedApiVersion: 1
+    expectedApiVersion: __API__
+    latestApiVersion: __LATEST__
     onReadyChanged: {
       if (!ready || root.began) return
       root.began = true
@@ -178,6 +179,11 @@ def main():
         qml = QML.replace("__MODULE__", '"backend"')
         qml = qml.replace("__BINARY__", json.dumps(str(binary)))
         qml = qml.replace("__VERSION__", json.dumps(version))
+        # The revision the handshake requires, from the contract: the released
+        # one, which a binary built from this checkout speaks or is a step past.
+        contract = json.loads((ROOT / "backend-api.json").read_text())
+        qml = qml.replace("__API__", json.dumps(contract["releasedApiVersion"]))
+        qml = qml.replace("__LATEST__", json.dumps(contract["apiVersion"]))
         expected = base64.urlsafe_b64encode(b"\x00\xff\r\n" + b"abc123" * 200000).decode().rstrip("=")
         qml = qml.replace("__EXPECTED__", json.dumps(expected))
         config = temporary / "shell.qml"

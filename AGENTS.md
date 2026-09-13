@@ -54,8 +54,9 @@ three directories away from the client that calls it.
 - `backend-api.json` versions the public API contract. Internal Rust changes do
   not require a release, but new QML dependencies on methods, parameters,
   responses or error semantics require updated contract fixtures and a higher
-  API revision. Publish the backend and advance the pin before merging those
-  QML changes to main.
+  API revision — one step past `releasedApiVersion`, with the new methods and
+  cases named under `unreleased`, and the feature checking the connected backend against its fixed minimum API revision (for example API 2 for event suggestions). Keep that requirement after release; `released` and `unreleased` describe publication state, not a feature's permanent capability. A second step
+  waits for a release. See "Released and unreleased" in `docs/BACKEND-RUNTIME.md`.
 - The required Published backend merge gate tests the actual pinned release with
   current QML codecs. Extend the contract tests for changed behavior; an inventory
   check alone does not prove compatibility. Source fingerprints are release
@@ -550,28 +551,20 @@ key. What matters while working:
 
 - **Every PR that changes UI must include before-and-after screenshots in its description and explain the visible differences.** Label the screenshots clearly and capture the same view, state, window size, theme and scale so reviewers can compare them directly. Cover each changed view or interaction state; update the screenshots when later commits change the UI. Use synthetic or redacted mail data and upload images to GitHub's attachment host, never to the repository. A UI PR without this evidence is not ready for approval; passing tests do not replace the visual comparison.
 
-- **No scope prefix, and this is where the project departs from GPUI Component on purpose.** A title is the imperative outcome and nothing in front of it: `Read a message at a readable size`, not `reader: Read a message at a readable size`.
-
-  gpui-component prefixes everything — `markdown: Share the parsed block list instead of cloning it every frame`, `dock: Keep a split filled when its last slot is hidden`, `input: Stop copying the value into InputPresentation` — and it is right to. That repository is a kit of separable components and crates, so the first question a reader has is *which one*, and the prefix answers it before the sentence starts.
-
-  This repository is one application that does one thing: mail. There is no kit, no second component, and nothing a reader has to be told apart from anything else — so the question the prefix answers never arises, and a prefix put there anyway has to be invented. That is what `app:` is: a word that names nothing, on the changes that were worth doing. Do not restore the prefix by reading gpui-component and concluding the style should match. The style follows from the shape of the repository, and the shapes are different. This has been re-litigated once already.
+- **Choose the scope prefix from the final change.** AI feature changes use `ai: `, documentation-only changes use `docs: `, website changes use `website: `, and repository maintenance changes — release workflows, CI, builds, dependency upkeep and developer tooling — use `chore: `. Website content changes use `website: `; `docs: ` is for repository documentation. Other changes have no scope prefix. For mixed changes, use the primary outcome rather than stacking prefixes; supporting documentation does not turn a feature or maintenance PR into a documentation PR. A release-flow PR with README cleanup therefore uses `chore: `.
+- **Start the title's action with `Fix ` for a bug fix or `Add ` for a new feature.** These words take a space, not a colon, and follow the scope prefix when one applies: `ai: Fix command deletion`, `ai: Add highlighted slash command tokens`, `website: Add provider setup examples`, `docs: Fix backend release instructions`, `chore: Fix backend release ordering with a single release PR`, or `Fix unread counts`. Without a scope prefix, `Fix ` or `Add ` begins the entire title. Other changes use the imperative verb that accurately describes the result.
 - **A title names machinery and what happened to it, in the words the code uses.** It is read by somebody deciding whether this is the change they are looking for. `Use the body and the read state already on disk` says which machinery moved; `Open a message on what the list already knows` describes the mechanism that produced the result and names nothing, and reads as a title only to somebody who has already seen the diff. Prose that could sit in a release note is not a title.
 - Derive the pull request title from the final `base...HEAD` diff. Do not copy the first commit subject when later commits have broadened or changed the outcome.
 - **Re-derive it every time a commit is added, not only when the pull request is opened.** The rule above is easy to satisfy at creation and easy to lose afterwards — one pull request here was opened for a single fix, grew three more, and kept the first commit's subject until somebody read it and said it was wrong. The description carries the same rule for the same reason; the title needs it said out loud because a title is short enough to go on looking true.
 - Rewrite the pull request description whenever its scope changes. It states the user-visible results, the architectural reason and invariants, and the verification actually performed; it does not preserve a chronological list of implementation attempts.
-- Commit subjects follow the same rule: imperative, outcome-oriented, unprefixed. A conventional prefix never substitutes for a precise result.
+- Commit subjects follow the same naming rules as PR titles, based on the changes in that commit: imperative and outcome-oriented, with the opening defined above. A prefix never substitutes for a precise result.
 - Markdown prose uses one source line per paragraph. Do not hard-wrap prose to a column width.
 
 ## Releasing
 
-- `scripts/bump.sh 0.2.0` is the whole of it: it sets the manifest version,
-  commits, tags and pushes both. The release workflow refuses a tag that
-  disagrees with the manifest, and by then the tag is on the remote and has to
-  be deleted from it — deriving both from one argument is what stops that.
-- It refuses before it writes: a `v` prefix, a version that is not
-  MAJOR.MINOR.PATCH, one the manifest already carries, a branch that is not
-  main, a dirty tree, a tag that already exists here or on the remote, and a
-  main that is behind the remote. It runs `make test` before tagging.
+- `make publish VERSION=X.Y.Z` creates `release/X.Y.Z` and one PR from a clean, synchronized main; without VERSION it increments the patch. It prepares version metadata and pushes only the release branch. Never push main directly or bypass its PR requirement.
+- Release CI accepts only the matching versioned release branch. It builds both native backends, creates the tag, publishes and verifies public assets, then updates `backend-version` and folds `backend-api.json` on that same branch. Merge that PR once after the pin commit passes the required backend gate. Never update the QML backend pin before its release succeeds.
+- Pin-only pushes exclude both `backend-version` and `backend-api.json` from the Release trigger. Existing tags and releases are never overwritten; failures leave the pin unchanged. See `docs/BACKEND-RUNTIME.md` for recovery.
 - A user-visible pull request carries a `## Release Notes` section in its
   description. Write the shipped results there as concise user-facing bullets;
   implementation details and verification belong in their own sections.
@@ -580,7 +573,7 @@ key. What matters while working:
   `## Release Notes` section and builds the complete change list. Do not replace
   this with GitHub's generated notes: those do not read the PR descriptions and
   can omit a pull request that is present in the tagged history.
-- The tag is the only thing that publishes a release. Nothing else creates one.
+- Tags do not trigger publication. Only a versioned release branch runs Release; neither the local publish command nor CI pushes main.
 
 ## Verification
 
