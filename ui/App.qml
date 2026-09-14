@@ -27,7 +27,10 @@ Item {
   property var service: null
   property bool opened: false
   property bool closingFromHost: false
-  property string draftSavedNotice: ""
+  property string draftSavedToast: ""
+  property string composeRecoveryNotice: ""
+  property bool composeRecoveryUpdateNoticePending: false
+  readonly property string draftSavedNotice: composeRecoveryNotice || draftSavedToast
   readonly property bool backendUnavailable: !!service && !!service.backendRuntime
     && (service.backendRuntime.state !== "ready" || !service.backend.ready)
 
@@ -353,7 +356,7 @@ Item {
   function back() {
     var leaving = Nav.top(nav)
     pendingComposeReturnTo = -1
-    if (leaving.kind === "compose") return saveAndLeaveCompose()
+    if (leaving.kind === "compose") return requestLeaveCompose()
     if (leaving.kind === "eventComposer") return eventComposer.close()
     if (leaving.kind === "calendarDetail") return calendarView.closeDetail()
     if (leaving.kind === "reader") {
@@ -479,6 +482,7 @@ Item {
 
   function close() {
     closingFromHost = true
+    composeExitDialog.close()
     // Escape at the list root closes the window without clearing what the
     // cursor had previewed, so it reopened showing a stale message beside the
     // list. A preview is not a place the window was left in.
@@ -704,8 +708,19 @@ Item {
     dropOverlay("compose")
   }
 
-  function saveAndLeaveCompose() {
-    if (!service || !compose.hasMeaningfulDraft()) {
+  function requestLeaveCompose() {
+    if (!compose.opened) return
+    if (!compose.hasUserChanges()) {
+      compose.finish()
+      return
+    }
+    composeExitDialog.open()
+  }
+
+  function saveAndLeaveCompose(force) {
+    if (!compose.opened) return
+    if (!service) return
+    if (force !== true && !compose.hasMeaningfulDraft()) {
       compose.finish()
       return
     }
@@ -728,7 +743,7 @@ Item {
       if (compose.opened) root.scheduleComposeRecovery()
       else root.clearComposeRecovery(recoveryRevision)
       var warning = String(result && result.warning || "")
-      root.draftSavedNotice = warning === "" ? "Draft saved" : warning
+      root.draftSavedToast = warning === "" ? "Draft saved" : warning
       if (warning !== "" && service && typeof service.note === "function")
         service.note(warning)
       draftSavedTimer.restart()
@@ -752,7 +767,7 @@ Item {
         return
       }
       if (!compose.completeInterruptedSave(interrupted)) return
-      root.draftSavedNotice = "Draft saved"
+      root.draftSavedToast = "Draft saved"
       draftSavedTimer.restart()
     })
     return true
@@ -769,7 +784,7 @@ Item {
     id: draftSavedTimer
     interval: 4000
     repeat: false
-    onTriggered: root.draftSavedNotice = ""
+    onTriggered: root.draftSavedToast = ""
   }
 
   // Opened on the cursor rather than on the selection, the way every other
@@ -1124,6 +1139,7 @@ Item {
       // The agent popup is about one account's message too.
       agentPrompt.close()
       composeAgent.close()
+      composeExitDialog.close()
     }
     function onSidebarWidthChanged() { root.sidebarWidth = root.service.sidebarWidth }
     function onListWidthChanged() { root.listWidth = root.service.listWidth }
@@ -1505,6 +1521,7 @@ Item {
         return false
       }
       function applyContextFocus() {
+        if (composeExitDialog.opened) return
         if (keyContext === "assistant" || keyContext === "assistantCommands") {
           if (composeAgent.opened && !composeAgent.activeFocus) composeAgent.takeFocus()
           else if (agentPrompt.opened && !agentPrompt.activeFocus) agentPrompt.takeFocus()
@@ -2088,7 +2105,7 @@ Item {
           onClosed: {
             if (!root.composeDetachingForSave) root.clearComposeRecovery()
           }
-          onCloseRequested: root.saveAndLeaveCompose()
+          onCloseRequested: root.requestLeaveCompose()
           onSendQueued: {
             root.saveComposeRecovery(compose.pendingDraft)
             root.backToList()
@@ -2841,6 +2858,24 @@ Item {
         currentLabelId: root.service ? String(root.service.rawLabelId || "") : ""
         onLabelChosen: function(labelId) {
           root.actOnCursor("label:" + labelId, root.labelPickerOnlyCursor)
+        }
+      }
+
+      ComposeExitDialog {
+        id: composeExitDialog
+        objectName: "compose-exit-dialog"
+        currentDraftKey: compose.opened ? compose.draftKey : ""
+        textColor: root.foreground
+        dimColor: root.dim
+        dangerColor: root.urgent
+        popupBackgroundColor: root.popupBackground
+        popupBorderColor: root.popupBorder
+        panelFontFamily: root.fontFamily
+        onSaveRequested: function(draftKey) {
+          if (compose.opened && compose.draftKey === draftKey) root.saveAndLeaveCompose(true)
+        }
+        onDiscardRequested: function(draftKey) {
+          if (compose.opened && compose.draftKey === draftKey) compose.finish()
         }
       }
 

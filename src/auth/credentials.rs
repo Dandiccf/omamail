@@ -2,6 +2,14 @@
 use super::*;
 
 pub fn settings(provider: &str, account: &str) -> Result<Value, &'static str> {
+    settings_with(provider, account, crate::account::raw_registry()?)
+}
+
+pub fn settings_readonly(provider: &str, account: &str) -> Result<Value, &'static str> {
+    settings_with(provider, account, crate::account::raw_registry_readonly()?)
+}
+
+fn settings_with(provider: &str, account: &str, raw: Value) -> Result<Value, &'static str> {
     if !["gmail", "outlook", "imap", "jmap"].contains(&provider)
         || account.is_empty()
         || account.len() > 1024
@@ -9,7 +17,6 @@ pub fn settings(provider: &str, account: &str) -> Result<Value, &'static str> {
     {
         return Err("auth_account_invalid");
     }
-    let raw = crate::account::raw_registry()?;
     if raw["version"] != 1 {
         return Err("accounts_version_unsupported");
     }
@@ -111,15 +118,38 @@ pub async fn access_token(
     account: &str,
     resource: &str,
 ) -> Result<String, &'static str> {
+    access_token_with(provider, account, resource, false).await
+}
+
+pub async fn access_token_readonly(
+    provider: &str,
+    account: &str,
+    resource: &str,
+) -> Result<String, &'static str> {
+    access_token_with(provider, account, resource, true).await
+}
+
+async fn access_token_with(
+    provider: &str,
+    account: &str,
+    resource: &str,
+    read_only: bool,
+) -> Result<String, &'static str> {
     if provider != "outlook" {
         return Err("auth_provider_invalid");
     }
     valid_account(provider, account)?;
     let scope = scope(resource)?;
     let owned = account.to_owned();
-    let entry = tokio::task::spawn_blocking(move || settings("outlook", &owned))
-        .await
-        .map_err(|_| "auth_account_invalid")??;
+    let entry = tokio::task::spawn_blocking(move || {
+        if read_only {
+            settings_readonly("outlook", &owned)
+        } else {
+            settings("outlook", &owned)
+        }
+    })
+    .await
+    .map_err(|_| "auth_account_invalid")??;
     let client_id = entry["clientId"].as_str().ok_or("auth_client_missing")?;
     if client_id.is_empty() || client_id.len() > 1024 || client_id.chars().any(char::is_control) {
         return Err("auth_client_invalid");
@@ -195,19 +225,7 @@ pub async fn access_token(
                 && !s.chars().any(|c| c.is_whitespace() || c.is_control())
         })
         .ok_or("auth_invalid_response")?;
-    if let Some(rotated) = token["refresh_token"]
-        .as_str()
-        .filter(|s| !s.is_empty() && *s != refresh)
-    {
-        if rotated.len() > 16384 || rotated.chars().any(char::is_control) {
-            return Err("auth_invalid_response");
-        }
-        let args = ["store".into(), "--label=Omamail Outlook".into()]
-            .into_iter()
-            .chain(attrs)
-            .collect();
-        keyring(args, rotated.as_bytes().to_vec()).await?;
-    }
+    persist_outlook_rotation(&refresh, &token, attrs, read_only).await?;
     let granted = token["scope"].as_str().unwrap_or("");
     if scope
         .split_whitespace()
@@ -391,9 +409,83 @@ pub(super) fn scope(resource: &str) -> Result<&'static str, &'static str> {
     })
 }
 
+async fn persist_outlook_rotation(
+    refresh: &str,
+    token: &Value,
+    attrs: [String; 8],
+    read_only: bool,
+) -> Result<(), &'static str> {
+    if let Some(rotated) = token["refresh_token"]
+        .as_str()
+        .filter(|s| !s.is_empty() && *s != refresh)
+    {
+        if rotated.len() > 16384 || rotated.chars().any(char::is_control) {
+            return Err("auth_invalid_response");
+        }
+        if read_only {
+            return Ok(());
+        }
+        let args = ["store".into(), "--label=Omamail Outlook".into()]
+            .into_iter()
+            .chain(attrs)
+            .collect();
+        keyring(args, rotated.as_bytes().to_vec()).await?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn outlook_readonly_refresh_never_persists_rotated_credentials() {
+        use std::os::unix::fs::PermissionsExt;
+        if crate::mail::tests::isolated() {
+            return;
+        }
+        let fixture = crate::mail::tests::account_fixture(json!({"version":1,"accounts":[]}));
+        let bin = fixture.root.join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        let effect = fixture.root.join("stored-token");
+        let helper = bin.join("secret-tool");
+        std::fs::write(
+            &helper,
+            format!(
+                "#!/bin/sh\nIFS= read -r token || :\nprintf '%s' \"$token\" > '{}'\n",
+                effect.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700)).unwrap();
+        unsafe {
+            std::env::set_var("PATH", &bin);
+        }
+        let attrs = [
+            "service",
+            "omamail",
+            "kind",
+            "outlook-refresh-token",
+            "client-id",
+            "synthetic",
+            "account",
+            "outlook:test@example.org",
+        ]
+        .map(str::to_owned);
+        let before = crate::mail::tests::fixture_tree(&fixture.root);
+        let token = json!({"refresh_token":"rotated-synthetic"});
+        persist_outlook_rotation("old-synthetic", &token, attrs.clone(), true)
+            .await
+            .unwrap();
+        assert_eq!(
+            crate::mail::tests::fixture_tree(&fixture.root),
+            before,
+            "read-only refresh started a credential-writing process"
+        );
+        persist_outlook_rotation("old-synthetic", &token, attrs, false)
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read(effect).unwrap(), b"rotated-synthetic");
+    }
     #[tokio::test]
     async fn invalidation_waits_for_rotation_without_opening_another_refresh_lane() {
         let account = "outlook:rotation-fixture@example.org";

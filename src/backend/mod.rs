@@ -1,7 +1,8 @@
 mod content;
-mod reader;
+pub(crate) mod mail;
 mod methods;
 pub mod protocol;
+mod reader;
 mod rpc;
 pub mod stdio;
 pub mod upload;
@@ -56,6 +57,9 @@ impl Session {
     // re-enter this dispatcher; embedding every provider future here overflowed
     // the worker stack in the real Quickshell large-request integration test.
     pub async fn dispatch(&self, method: &str, params: &Value) -> Result<Value, &'static str> {
+        if matches!(method, "mail.list" | "mail.read" | "mail.act" | "mail.send") {
+            return Box::pin(self.mail_call(method, params)).await;
+        }
         if matches!(method, "system.info" | "system.quit" | "providers.list") {
             return dispatch(method, params);
         }
@@ -74,16 +78,28 @@ impl Session {
                 } else {
                     crate::account::conversation::request(&params)
                 }
-            }).await.map_err(|_| "worker_failed")?;
+            })
+            .await
+            .map_err(|_| "worker_failed")?;
         }
         if matches!(method, "providers.resolve" | "providers.snapshot") {
             if method == "providers.resolve" {
                 return crate::providers::domain::resolve(params);
             }
-            if params != &json!({}) { return Err("invalid_params"); }
+            if params != &json!({}) {
+                return Err("invalid_params");
+            }
             return Ok(crate::providers::domain::snapshot());
         }
-        if matches!(method, "agent.jobsList" | "agent.jobsProjection" | "agent.jobStart" | "agent.jobShow" | "agent.jobCancel" | "agent.jobForget") {
+        if matches!(
+            method,
+            "agent.jobsList"
+                | "agent.jobsProjection"
+                | "agent.jobStart"
+                | "agent.jobShow"
+                | "agent.jobCancel"
+                | "agent.jobForget"
+        ) {
             return Box::pin(crate::agent::jobs::call(method, params)).await;
         }
         if method.starts_with("outbox.") {
@@ -403,7 +419,7 @@ pub fn dispatch(method: &str, params: &Value) -> Result<Value, &'static str> {
     match method {
         "system.info" => Ok(json!({
             "name": "omamail", "version": env!("CARGO_PKG_VERSION"),
-            "protocol": 1, "apiVersion": 3, "methods": methods::ALL
+            "protocol": 1, "apiVersion": 4, "methods": methods::ALL
         })),
         "system.quit" => Ok(json!({"quitReady": true})),
         "accounts.list" => account::list(),

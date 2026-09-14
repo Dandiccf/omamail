@@ -623,7 +623,7 @@ Item {
   function checkMicrosoftConnection(callback) {
     if (typeof callback !== "function") return
     var report = { mail: false, graph: false, calendar: false }
-    if (providerId !== "outlook" || !auth || !auth.loggedIn || !backend || !backend.ready || !(backend.apiVersion >= 3)) {
+    if (providerId !== "outlook" || !auth || !auth.loggedIn || !backend || !backend.ready || !(backend.apiVersion >= 4)) {
       callback(report)
       return
     }

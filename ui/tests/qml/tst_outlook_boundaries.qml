@@ -223,7 +223,7 @@ Item {
     function test_account_connection_check_refuses_an_old_backend_without_a_request() {
       var host = readyHost()
       var backend = Transports.install(host.api)
-      backend.apiVersion = 2
+      backend.apiVersion = 3
       host.backend = backend
       host.auth.loggedIn = true
       wait(1)
@@ -237,7 +237,7 @@ Item {
     function test_account_connection_check_uses_only_saved_boundaries() {
       var host = readyHost()
       var backend = Transports.install(host.api)
-      backend.apiVersion = 3
+      backend.apiVersion = 4
       host.backend = backend
       host.api.backend = backend
       host.auth.backend = backend
