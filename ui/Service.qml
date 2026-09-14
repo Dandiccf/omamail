@@ -80,8 +80,8 @@ Item {
   readonly property bool backendNeedsUpdate: backend.needsUpdate
   // Event suggestions require API 2 regardless of when that API is released.
   readonly property bool backendCanSuggestEvents: backend.ready && backend.apiVersion >= 2
-  readonly property bool backendCanCheckMicrosoftConnection: backend.ready && backend.apiVersion >= 3
-  readonly property bool backendCanDiscoverCalendars: backend.ready && backend.apiVersion >= 3
+  readonly property bool backendCanCheckMicrosoftConnection: backend.ready && backend.apiVersion >= 4
+  readonly property bool backendCanDiscoverCalendars: backend.ready && backend.apiVersion >= 4
 
   readonly property string pluginId: manifest && manifest.id
     ? String(manifest.id) : "omamail"

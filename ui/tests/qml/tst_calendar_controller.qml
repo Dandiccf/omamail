@@ -123,7 +123,7 @@ Item {
       controller.setSourceEnabled("caldav:team", false)
       compare(controller.savingSource, false,
         "calendar settings cannot race the discovery result writer")
-      mailService.discoveryCallback(null, {code: "calendar_auth_refused"})
+      mailService.discoveryCallback(null, {code: -32000, message: "calendar_auth_refused"})
       compare(controller.discoveringCalendars, false)
       compare(controller.discoveryError, "Sign in to this mailbox again")
 
@@ -133,6 +133,20 @@ Item {
         accountId: "imap:person@icloud.com", calendars: [] }, null)
       compare(controller.savingSource, false)
       compare(controller.discoveryError, "Calendars could not be discovered")
+    }
+
+    function test_discovery_failure_uses_only_known_rpc_messages() {
+      var cases = [
+        {message: "auth_signed_out", expected: "Sign in to this mailbox again"},
+        {message: "calendar_auth_refused", expected: "Sign in to this mailbox again"},
+        {message: "calendar_provider_unsupported", expected: "This mailbox does not provide iCloud or Microsoft calendars"},
+        {message: "calendar_timeout", expected: "Calendar discovery timed out"},
+        {message: "private diagnostic <img src='https://example.org/tracker'>", expected: "Calendars could not be discovered"}
+      ]
+      for (var i = 0; i < cases.length; i++) {
+        compare(controller.discoveryFailure({code: -32000, message: cases[i].message}), cases[i].expected)
+      }
+      compare(controller.discoveryFailure(null), "Calendars could not be discovered")
     }
 
     function test_discovery_on_an_old_backend_makes_no_request_or_settings_write() {
