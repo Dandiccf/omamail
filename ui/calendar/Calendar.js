@@ -543,6 +543,10 @@ function nativeRequestError(kind) {
     return "Google calendar request failed. Sign in again and check Calendar access"
   if (kind === "caldav")
     return "CalDAV calendar request failed. Check its server address and password in Settings"
+  // An iCloud calendar signs in with the mailbox's app-specific password, so
+  // that is what a refusal points at; there is no separate calendar password.
+  if (kind === "icloud")
+    return "iCloud calendar request failed. Check the mailbox's app-specific password in Settings"
   return "The calendar request failed"
 }
 

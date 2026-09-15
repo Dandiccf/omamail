@@ -580,6 +580,8 @@ console.log("test_calendar_feed.js ok")
     "Microsoft calendar request failed. Check Graph permissions in Settings, then sign in again")
   assert.strictEqual(feed.nativeRequestError("caldav"),
     "CalDAV calendar request failed. Check its server address and password in Settings")
+  assert.strictEqual(feed.nativeRequestError("icloud"),
+    "iCloud calendar request failed. Check the mailbox's app-specific password in Settings")
   assert.strictEqual(feed.nativeRequestError("unknown"),
     "The calendar request failed")
 
