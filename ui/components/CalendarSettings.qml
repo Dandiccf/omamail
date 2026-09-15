@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Commons
 import qs.Ui
+import "../calendar/Sources.js" as Sources
 
 Column {
   id: root
@@ -41,13 +42,27 @@ Column {
     return ""
   }
 
+  function orphaned(source) {
+    return Sources.orphaned(source,
+      root.service && Array.isArray(root.service.accountSummaries) ? root.service.accountSummaries : [])
+  }
+
+  // A hand-added calendar is removed here; one that came with a mailbox is
+  // refreshed by discovery instead — unless the mailbox is gone, when there
+  // is nothing left to refresh it and this is the only way to be rid of it.
+  function removable(source) {
+    var value = source || {}
+    return (value.kind === "caldav" && value.discovered !== true) || root.orphaned(value)
+  }
+
   function sourceDetail(source) {
     var value = source || {}
     if (value.kind === "caldav") return String(value.url || "CalDAV")
     var provider = value.kind === "google" ? "Google"
       : value.kind === "microsoft" ? "Microsoft" : "iCloud"
     var account = root.accountLabel(value)
-    var detail = account === "" ? provider + " calendar" : provider + " · " + account
+    var detail = root.orphaned(value) ? provider + " · Mailbox removed"
+      : account === "" ? provider + " calendar" : provider + " · " + account
     return value.readOnly === true ? detail + " · Read-only" : detail
   }
 
@@ -230,6 +245,7 @@ Column {
           elide: Text.ElideRight
         }
         Text {
+          objectName: "calendar-source-detail"
           width: parent.width
           text: root.sourceDetail(modelData)
           color: root.dimColor
@@ -291,7 +307,8 @@ Column {
           }
         }
         IconTextButton {
-          visible: modelData.kind === "caldav" && modelData.discovered !== true
+          objectName: "calendar-source-remove"
+          visible: root.removable(modelData)
           text: "Remove"
           bordered: false
           foreground: root.urgentColor

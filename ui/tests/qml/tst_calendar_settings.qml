@@ -36,6 +36,8 @@ Item {
     property int discoverCalls: 0
     property int toggleCalls: 0
     property string toggledId: ""
+    property int removeCalls: 0
+    property string removedId: ""
     property int colorCalls: 0
     property string coloredId: ""
     property string selectedColor: ""
@@ -43,7 +45,7 @@ Item {
     signal discoveryFinished(bool ok, string error, int count)
 
     function addCalDavCalendar(_source, _password) {}
-    function removeCalendar(_sourceId) {}
+    function removeCalendar(sourceId) { removeCalls++; removedId = sourceId }
     function updateCalendarPassword(_source, _password) {}
     function discoveredCount(_accountId) { return 0 }
     function discoverAccountCalendars(_accountId) { discoverCalls++; return true }
@@ -78,6 +80,8 @@ Item {
       calendarController.discoverCalls = 0
       calendarController.toggleCalls = 0
       calendarController.toggledId = ""
+      calendarController.removeCalls = 0
+      calendarController.removedId = ""
       calendarController.colorCalls = 0
       calendarController.coloredId = ""
       calendarController.selectedColor = ""
@@ -145,6 +149,43 @@ Item {
       compare(calendarController.selectedColor, "blue")
       compare(picker.visible, false)
     }
+    // Removing a mailbox leaves the calendars discovered through it in the
+    // settings file with nothing to sign in as. They can be removed here;
+    // a calendar whose mailbox is still present is refreshed, not removed.
+    function test_a_calendar_whose_mailbox_is_gone_can_be_removed() {
+      mailService.accountSummaries = [{ id: "imap:person@icloud.com",
+        email: "person@icloud.com", provider: "imap", calendarProvider: "icloud",
+        signedIn: true }]
+      calendarController.sourceList = ({ version: 1, sources: [{
+        id: "icloud:kept", kind: "icloud", name: "Personal",
+        accountId: "imap:person@icloud.com", enabled: true, discovered: true,
+        colorKey: "accent"
+      }, {
+        id: "icloud:orphan", kind: "icloud", name: "Old",
+        accountId: "imap:gone@icloud.com", enabled: true, discovered: true,
+        colorKey: "accent"
+      }] })
+      wait(1)
+      var removes = []
+      var details = []
+      function collect(item) {
+        if (!item) return
+        if (item.objectName === "calendar-source-remove") removes.push(item)
+        if (item.objectName === "calendar-source-detail") details.push(item)
+        for (var i = 0; i < item.children.length; i++) collect(item.children[i])
+      }
+      collect(settings)
+      compare(removes.length, 2)
+      compare(removes[0].visible, false, "a calendar with its mailbox is not removable")
+      compare(removes[1].visible, true, "a calendar without its mailbox is")
+      compare(details.length, 2)
+      compare(details[0].text, "iCloud · person@icloud.com")
+      compare(details[1].text, "iCloud · Mailbox removed")
+      removes[1].clicked()
+      compare(calendarController.removeCalls, 1)
+      compare(calendarController.removedId, "icloud:orphan")
+    }
+
     function test_old_backend_does_not_offer_discovery() {
       mailService.accountSummaries = [{ id: "imap:person@icloud.com",
         email: "person@icloud.com", calendarProvider: "icloud", signedIn: true }]
