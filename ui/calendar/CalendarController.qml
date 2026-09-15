@@ -372,13 +372,29 @@ Item {
 
   function createGoogleEvent() { createNativeEvent() }
 
+  // The account's primary Microsoft calendar, which is the one calendar a
+  // backend from before discovery reaches: it ignores the identity and asks
+  // for /me/calendarView, and that is this calendar. Discovery stores its
+  // real Graph id under the same source id, so the id is what says which
+  // source may go on without one rather than being refused.
+  function isDefaultMicrosoftCalendar(source) {
+    return !!source && source.kind === "microsoft"
+      && String(source.id || "") === "microsoft:" + String(source.accountId || "")
+  }
+
   function nativeRequest(source, operation, fields, callback) {
     if (!service || !service.backend) { callback(null, "Calendar backend is unavailable"); return }
-    if (source && (source.kind === "icloud"
-        || (source.kind === "microsoft" && String(source.calendarId || "") !== ""))
-        && service.backendCanDiscoverCalendars !== true) {
-      callback(null, "Update the backend to access this calendar")
-      return
+    if (source && service.backendCanDiscoverCalendars !== true) {
+      if (source.kind === "microsoft" && String(source.calendarId || "") !== ""
+          && isDefaultMicrosoftCalendar(source)) {
+        var degraded = Sources.makeSource(source)
+        degraded.calendarId = ""
+        source = degraded
+      } else if (source.kind === "icloud"
+          || (source.kind === "microsoft" && String(source.calendarId || "") !== "")) {
+        callback(null, "Update the backend to access this calendar")
+        return
+      }
     }
     var params = fields || {}
     params.source = source

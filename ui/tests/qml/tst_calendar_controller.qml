@@ -246,6 +246,34 @@ Item {
       compare(mailService.requests.length, 1, "the established default calendar still works")
     }
 
+    // Discovery stores the default calendar's real Graph id. A backend one
+    // API step behind cannot address a calendar by id, but the default is
+    // the one calendar it reaches without one, so the source degrades to the
+    // pre-discovery request instead of being refused.
+    function test_old_backend_reaches_the_discovered_default_calendar_without_its_identity() {
+      mailService.backendCanDiscoverCalendars = false
+      var defaultCalendar = {id: "microsoft:outlook:me@contoso.com", kind: "microsoft",
+        accountId: "outlook:me@contoso.com", calendarId: "default-id", discovered: true}
+      var replies = 0
+      controller.nativeRequest(defaultCalendar, "list", {}, function(result, error) {
+        compare(error, "")
+        replies++
+      })
+      compare(replies, 1)
+      compare(mailService.requests.length, 1)
+      compare(mailService.requests[0].params.source.calendarId, "")
+      compare(mailService.requests[0].params.source.id, "microsoft:outlook:me@contoso.com")
+      compare(defaultCalendar.calendarId, "default-id", "the saved source keeps its identity")
+      var secondary = {id: "microsoft:outlook:me@contoso.com:hash", kind: "microsoft",
+        accountId: "outlook:me@contoso.com", calendarId: "holiday-id", discovered: true}
+      controller.nativeRequest(secondary, "list", {}, function(result, error) {
+        compare(error, "Update the backend to access this calendar")
+        replies++
+      })
+      compare(replies, 2)
+      compare(mailService.requests.length, 1, "a secondary calendar has no request an old backend can make")
+    }
+
     function test_native_request_explains_microsoft_recovery() {
       mailService.nextResult = null
       mailService.nextError = ({ code: -32000, message: "calendar_auth_refused" })
