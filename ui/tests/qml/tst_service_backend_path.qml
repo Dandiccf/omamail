@@ -21,11 +21,14 @@ Item {
       compare(service.backendCanCheckMicrosoftConnection, false,
         "published API 3 adds mail CLI methods, not connection checks")
       backend.protocolInfo = ({ apiVersion: 4 })
+      compare(service.backendCanCheckMicrosoftConnection, false,
+        "published API 4 adds native credentials, not connection checks")
+      backend.protocolInfo = ({ apiVersion: 5 })
       compare(service.backendCanCheckMicrosoftConnection, true)
-      backend.latestApiVersion = 5
+      backend.latestApiVersion = 6
       compare(service.backendCanCheckMicrosoftConnection, true,
         "a later API must not disable an already supported connection check")
-      backend.protocolInfo = ({ apiVersion: 5 })
+      backend.protocolInfo = ({ apiVersion: 6 })
       compare(service.backendCanCheckMicrosoftConnection, true)
       backend.connected = false
       compare(service.backendCanCheckMicrosoftConnection, false)

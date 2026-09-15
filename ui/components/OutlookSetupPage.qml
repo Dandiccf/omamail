@@ -324,7 +324,8 @@ Column {
       font.family: root.panelFontFamily
       font.pixelSize: Style.font.caption
       tooltipText: "https://support.microsoft.com/en-us/outlook/pop-imap-and-smtp-settings-for-outlook-com"
-      onActivated: Qt.openUrlExternally(tooltipText)
+      onActivated: if (root.service && typeof root.service.openExternal === "function")
+        root.service.openExternal(tooltipText)
     }
   }
 
@@ -357,7 +358,8 @@ Column {
       font.family: root.panelFontFamily
       font.pixelSize: Style.font.caption
       tooltipText: "https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade"
-      onActivated: Qt.openUrlExternally(tooltipText)
+      onActivated: if (root.service && typeof root.service.openExternal === "function")
+        root.service.openExternal(tooltipText)
     }
   }
 
@@ -404,7 +406,8 @@ Column {
         font.family: root.panelFontFamily
         font.pixelSize: Style.font.caption
         tooltipText: root.auth && root.auth.verificationUri !== undefined ? root.auth.verificationUri : ""
-        onActivated: Qt.openUrlExternally(tooltipText)
+        onActivated: if (root.service && typeof root.service.openExternal === "function")
+          root.service.openExternal(tooltipText)
       }
     }
   }

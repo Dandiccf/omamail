@@ -94,41 +94,45 @@ fn get_request() -> Request {
 async fn mail_send_preview_reads_google_identity_without_mutation_or_local_writes() {
     use crate::mail::tests::{account_fixture, fixture_tree, isolated};
     use serde_json::json;
-    use std::os::unix::fs::PermissionsExt;
     if isolated() {
         return;
     }
     let fixture = account_fixture(json!({"version":1,"activeId":"audit@example.org",
         "accounts":[{"provider":"gmail","email":"audit@example.org"}]}));
-    let credentials = fixture.root.join("home/.config/omamail");
-    std::fs::create_dir_all(&credentials).unwrap();
-    let client_file = credentials.join("credentials.json");
-    std::fs::write(
-        &client_file,
+    let credentials = crate::platform::private_fs::directories(
+        &fixture.config,
+        &[crate::platform::dirs::APP_DIRECTORY],
+        true,
+    )
+    .unwrap()
+    .unwrap();
+    crate::platform::private_fs::atomic_replace(
+        &credentials,
+        "credentials.json",
         json!({"installed":{
         "client_id":"123-audit.apps.googleusercontent.com",
         "client_secret":"synthetic-client-secret"}})
-        .to_string(),
+        .to_string()
+        .as_bytes(),
     )
     .unwrap();
-    std::fs::set_permissions(&client_file, std::fs::Permissions::from_mode(0o600)).unwrap();
-    let helper = fixture.root.join("secret-tool");
-    std::fs::write(&helper, r#"#!/usr/bin/python3
-import os, sys
-expected = ['lookup','service','omamail','kind','refresh-token','client-id','123-audit.apps.googleusercontent.com','account','audit@example.org','grant','calendar-events-v1']
-if sys.argv[1:] != expected or sys.stdin.read() != '':
-    open(os.path.join(os.environ['HOME'], 'forbidden-process'), 'w').write('unexpected invocation')
-    sys.exit(99)
-print('synthetic-refresh-token')
-"#).unwrap();
-    std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700)).unwrap();
-    unsafe { std::env::set_var("PATH", &fixture.root) };
-    for directory in ["cache", "state"] {
-        let directory = fixture.root.join(directory).join("omamail");
+    let _credential =
+        crate::credentials::tests::isolated_store(crate::credentials::tests::SingleCredential {
+            key: crate::credentials::CredentialKey {
+                provider: "gmail".into(),
+                account_id: "audit@example.org".into(),
+                kind: crate::credentials::CredentialKind::GoogleRefreshToken {
+                    client_id: "123-audit.apps.googleusercontent.com".into(),
+                },
+            },
+            secret: crate::credentials::Secret::new(b"synthetic-refresh-token".to_vec()).unwrap(),
+        });
+    for root in [&fixture.cache, &fixture.state] {
+        let directory = root.join("omamail");
         std::fs::create_dir_all(&directory).unwrap();
         std::fs::write(directory.join("sentinel"), b"unchanged existing state").unwrap();
     }
-    std::fs::write(fixture.root.join("state/omamail/outbox.json"), b"[]\n").unwrap();
+    std::fs::write(fixture.state.join("omamail/outbox.json"), b"[]\n").unwrap();
     let attachment = fixture.root.join("quote\\工\".txt");
     std::fs::write(&attachment, b"private attachment bytes").unwrap();
     let before = fixture_tree(&fixture.root);
