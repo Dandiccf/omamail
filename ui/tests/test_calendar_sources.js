@@ -296,3 +296,50 @@ assert.strictEqual(namedMicrosoft.sources[0].name, "Work appointments",
     "an undiscovered account still gets its primary calendar")
 }
 
+// A discovered calendar outlives the mailbox it came with: removing the
+// account edits the account list, not calendars.json. Such a source can no
+// longer sign in, so it is named as orphaned for the settings page to offer
+// removing it, where a synthesized or still-owned source is not.
+{
+  const accounts = [
+    { id: "outlook:me@contoso.com", email: "me@contoso.com", provider: "outlook", signedIn: true },
+    { id: "imap:person@icloud.com", email: "person@icloud.com", provider: "imap", signedIn: false }
+  ]
+  const owned = { id: "microsoft:outlook:me@contoso.com:hash", kind: "microsoft",
+    accountId: "outlook:me@contoso.com", discovered: true }
+  const signedOut = { id: "icloud:one", kind: "icloud", accountId: "imap:person@icloud.com", discovered: true }
+  const gone = { id: "icloud:two", kind: "icloud", accountId: "imap:gone@icloud.com", discovered: true }
+  const caldav = { id: "caldav:team", kind: "caldav", url: "https://calendar.example/team/" }
+  assert.strictEqual(sources.orphaned(owned, accounts), false)
+  assert.strictEqual(sources.orphaned(signedOut, accounts), false, "a signed-out mailbox is still a mailbox")
+  assert.strictEqual(sources.orphaned(gone, accounts), true)
+  assert.strictEqual(sources.orphaned(caldav, accounts), false, "a hand-added calendar has no mailbox to lose")
+  assert.strictEqual(sources.orphaned(gone, []), true)
+  assert.strictEqual(sources.orphaned(null, accounts), false)
+}
+
+// A calendar error names its source. Discovery names a calendar the way its
+// provider does — every Outlook mailbox has a "Calendar" — so a discovered
+// source is named with its mailbox as well, where the address alone said which
+// account needed attention before.
+{
+  const accounts = [
+    { id: "outlook:me@contoso.com", email: "me@contoso.com", provider: "outlook", signedIn: true },
+    { id: "imap:person@icloud.com", label: "Personal", provider: "imap", signedIn: true }
+  ]
+  assert.strictEqual(sources.errorLabel({ id: "microsoft:outlook:me@contoso.com", kind: "microsoft",
+    name: "Calendar", accountId: "outlook:me@contoso.com", discovered: true }, accounts),
+    "Calendar · me@contoso.com")
+  assert.strictEqual(sources.errorLabel({ id: "icloud:one", kind: "icloud", name: "Home",
+    accountId: "imap:person@icloud.com", discovered: true }, accounts),
+    "Home · Personal", "a mailbox with no address is named by its label")
+  assert.strictEqual(sources.errorLabel({ id: "icloud:two", kind: "icloud", name: "Home",
+    accountId: "imap:gone@icloud.com", discovered: true }, accounts),
+    "Home · imap:gone@icloud.com", "a removed mailbox is still named")
+  assert.strictEqual(sources.errorLabel({ id: "microsoft:outlook:me@contoso.com", kind: "microsoft",
+    name: "me@contoso.com", accountId: "outlook:me@contoso.com" }, accounts),
+    "me@contoso.com", "a synthesized source already carries its address")
+  assert.strictEqual(sources.errorLabel({ id: "caldav:team", kind: "caldav", name: "Team" }, accounts), "Team")
+  assert.strictEqual(sources.errorLabel({ id: "caldav:team", kind: "caldav" }, accounts), "caldav:team")
+  assert.strictEqual(sources.errorLabel(null, accounts), "Calendar")
+}

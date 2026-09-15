@@ -231,6 +231,41 @@ function comesWithAccount(source) {
     || source.kind === "icloud")
 }
 
+function accountSummary(accountId, accountSummaries) {
+  var wanted = trimmed(accountId)
+  var accounts = Array.isArray(accountSummaries) ? accountSummaries : []
+  for (var i = 0; i < accounts.length; i++) {
+    if (accounts[i] && trimmed(accounts[i].id || accounts[i].email) === wanted)
+      return accounts[i]
+  }
+  return null
+}
+
+// A source that came with a mailbox the list of accounts no longer has.
+// Removing an account edits the account list and nothing else, so the
+// calendars discovered through it stay in calendars.json with nothing to sign
+// in as; the settings page offers to remove what it would otherwise only be
+// able to hide. A signed-out mailbox is still a mailbox.
+function orphaned(source, accountSummaries) {
+  if (!comesWithAccount(source) || trimmed(source.accountId) === "") return false
+  return accountSummary(source.accountId, accountSummaries) === null
+}
+
+// The name a calendar error reports its source under. A discovered calendar
+// is named the way its provider names it — every Outlook mailbox has a
+// "Calendar" — so its mailbox is named with it, where the address alone
+// said which account needed attention before discovery.
+function errorLabel(source, accountSummaries) {
+  if (!source) return "Calendar"
+  var name = trimmed(source.name) || trimmed(source.id) || "Calendar"
+  if (source.discovered !== true || !comesWithAccount(source)) return name
+  var accountId = trimmed(source.accountId)
+  if (accountId === "") return name
+  var account = accountSummary(accountId, accountSummaries)
+  var mailbox = account ? trimmed(account.email || account.label) : ""
+  return name + " · " + (mailbox === "" ? accountId : mailbox)
+}
+
 function comparableUrl(value) {
   var text = trimmed(value)
   var parts = /^(https?:\/\/[^/?#]+)([^?#]*)(.*)$/i.exec(text)

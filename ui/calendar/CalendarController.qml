@@ -651,7 +651,7 @@ Item {
 
   function failSource(reason, kind) {
     if (refreshScope !== calendarScope) { processNext(); return }
-    var name = activeSource ? activeSource.name || activeSource.id : "Calendar"
+    var name = Sources.errorLabel(activeSource, service ? service.accountSummaries : [])
     lastError = name + ": " + String(reason || "Could not load events")
     lastErrorKind = String(kind || "")
     processNext()

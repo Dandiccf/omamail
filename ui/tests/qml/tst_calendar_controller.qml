@@ -274,6 +274,35 @@ Item {
       compare(mailService.requests.length, 1, "a secondary calendar has no request an old backend can make")
     }
 
+    function test_native_request_explains_icloud_recovery() {
+      mailService.nextResult = null
+      mailService.nextError = ({ code: -32000, message: "calendar_auth_refused" })
+      var called = false
+      controller.nativeRequest({ kind: "icloud" }, "list", {}, function(result, error) {
+        compare(result, null)
+        compare(error, "iCloud calendar request failed. Check the mailbox's app-specific password in Settings")
+        called = true
+      })
+      verify(called)
+    }
+
+    function test_a_calendar_error_names_a_discovered_calendar_with_its_mailbox() {
+      mailService.accountSummaries = [
+        { id: "outlook:me@contoso.com", email: "me@contoso.com", provider: "outlook", signedIn: true },
+        { id: "outlook:other@contoso.com", email: "other@contoso.com", provider: "outlook", signedIn: true }
+      ]
+      controller.refreshScope = controller.calendarScope
+      controller.activeSource = { id: "microsoft:outlook:other@contoso.com", kind: "microsoft",
+        name: "Calendar", accountId: "outlook:other@contoso.com", calendarId: "default-id",
+        discovered: true }
+      controller.failSource("Something refused", "microsoft")
+      compare(controller.lastError, "Calendar · other@contoso.com: Something refused")
+      controller.refreshScope = controller.calendarScope
+      controller.activeSource = { id: "caldav:team", kind: "caldav", name: "Team" }
+      controller.failSource("Something refused", "caldav")
+      compare(controller.lastError, "Team: Something refused")
+    }
+
     function test_native_request_explains_microsoft_recovery() {
       mailService.nextResult = null
       mailService.nextError = ({ code: -32000, message: "calendar_auth_refused" })
