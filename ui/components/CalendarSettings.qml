@@ -536,10 +536,12 @@ Column {
 
   Text {
     id: resultText
+    // Whether the text reports success, said by the reporter rather than
+    // read back out of the words: an error can begin with anything.
+    property bool ok: false
     width: parent.width
     visible: text !== ""
-    color: text === "Calendar saved" || text.indexOf("Found ") === 0
-      ? root.dimColor : root.urgentColor
+    color: ok ? root.dimColor : root.urgentColor
     font.family: root.panelFontFamily
     font.pixelSize: Style.font.caption
     wrapMode: Text.WordWrap
@@ -558,6 +560,7 @@ Column {
   Connections {
     target: root.controller
     function onCalendarSaved(ok, error) {
+      resultText.ok = ok
       if (!ok) { resultText.text = error; return }
       resultText.text = "Calendar saved"
       calendarName.text = ""
@@ -569,6 +572,7 @@ Column {
       root.colorEditingId = ""
     }
     function onDiscoveryFinished(ok, error, count) {
+      resultText.ok = ok
       resultText.text = ok ? "Found " + count + (count === 1 ? " calendar" : " calendars") : error
     }
   }
