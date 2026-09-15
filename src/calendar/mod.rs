@@ -251,8 +251,10 @@ where
     } else if request.kind == "icloud" {
         request.username = discovery::icloud_username(&request.account_id)?;
         let password = crate::auth::password("imap", &request.account_id).await?;
-        Some(crate::credentials::Secret::new(password.into_bytes())
-            .map_err(|_| "calendar_password_invalid")?)
+        Some(
+            crate::credentials::Secret::new(password.into_bytes())
+                .map_err(|_| "calendar_password_invalid")?,
+        )
     } else {
         None
     };

@@ -7,6 +7,9 @@ Item {
 
   property bool checked: false
   property bool busy: false
+  property bool interactive: true
+  property bool cursorRing: false
+  property bool hasCursor: false
   property color foreground: Color.foreground
   property color accent: Color.accent
   signal toggled()
@@ -23,7 +26,8 @@ Item {
     objectName: "toggle-switch-input"
     anchors.centerIn: parent
     checked: root.checked
-    enabled: !root.busy
+    enabled: root.interactive && !root.busy
+    focusPolicy: root.interactive ? Qt.StrongFocus : Qt.NoFocus
     palette.window: Color.background
     palette.windowText: root.foreground
     palette.highlight: root.accent
@@ -31,6 +35,16 @@ Item {
       root.toggled()
       checked = root.checked
     }
+  }
+
+  Rectangle {
+    objectName: "toggle-switch-cursor-ring"
+    anchors.fill: toggle
+    radius: Style.cornerRadius
+    color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0)
+    border.width: Style.focusBorderWidth
+    border.color: Style.focusBorderFor(root.foreground, root.accent)
+    visible: root.cursorRing && root.hasCursor
   }
 
   QQC.BusyIndicator {

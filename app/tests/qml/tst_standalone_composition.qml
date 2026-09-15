@@ -5,15 +5,53 @@ import Quickshell
 import qs.Commons
 import "../../qml" as Standalone
 import "../../../ui/providers" as Providers
+import "../../../ui/components" as Components
 
 TestCase {
   id: testCase
   name: "StandaloneComposition"
   when: windowShown
+  visible: true
   width: 640
   height: 480
 
   HostFixture { id: host }
+
+  Item { id: focusParking }
+
+  QtObject {
+    id: calendarFixture
+    property var accountSummaries: []
+    property bool backendCanDiscoverCalendars: true
+    property bool unifiedCalendarView: false
+    property bool savingSource: false
+    property bool discoveringCalendars: false
+    property string discoveringAccountId: ""
+    property int toggleCalls: 0
+    property bool enabledValue: true
+    property var availableSources: ({version:1, sources:[{
+      id:"icloud:one", kind:"icloud", name:"Personal", accountId:"imap:fixture@icloud.com",
+      enabled:enabledValue, discovered:true, colorKey:"accent"
+    }]})
+    signal calendarSaved(bool ok, string error)
+    signal discoveryFinished(bool ok, string error, int count)
+    function setUnifiedCalendarView(value) { unifiedCalendarView = value }
+    function setSourceEnabled(id, value) { toggleCalls++; enabledValue = value }
+    function discoveredCount(id) { return 1 }
+  }
+
+  Component {
+    id: calendarComponent
+    Components.CalendarSettings {
+      service: calendarFixture
+      controller: calendarFixture
+      textColor: Color.foreground
+      dimColor: Style.mutedColorFor(Color.foreground, Color.background)
+      accentColor: Color.accent
+      urgentColor: Color.accent
+      panelFontFamily: Style.font.family
+    }
+  }
 
   Switch {
     id: styledSwitch
@@ -80,6 +118,48 @@ TestCase {
   }
 
   function init() { host.reset() }
+
+  function test_calendar_visibility_has_one_mouse_and_keyboard_owner() {
+    calendarFixture.enabledValue = true
+    calendarFixture.toggleCalls = 0
+    var settings = createTemporaryObject(calendarComponent, testCase)
+    verify(settings)
+    wait(0)
+    var trigger = findChild(settings, "calendar-source-toggle")
+    verify(trigger)
+    var input = findChild(trigger, "button-input")
+    var graphic = findChild(trigger, "toggle-switch-input")
+    var ring = findChild(trigger, "toggle-switch-cursor-ring")
+    verify(input && graphic && ring)
+    compare(graphic.enabled, false)
+    compare(graphic.focusPolicy, Qt.NoFocus)
+    var position = trigger.mapToItem(testCase, trigger.width / 2, trigger.height / 2)
+    verify(position.x >= 0 && position.x < testCase.width
+      && position.y >= 0 && position.y < testCase.height, "toggle location: " + position)
+    verify(trigger.visible && trigger.enabled && input.visible && input.enabled,
+      "trigger visible/enabled: " + trigger.visible + "/" + trigger.enabled
+        + ", input: " + input.visible + "/" + input.enabled)
+    mouseClick(trigger, trigger.width / 2, trigger.height / 2)
+    compare(calendarFixture.toggleCalls, 1)
+    compare(calendarFixture.enabledValue, false)
+    wait(0)
+    trigger = findChild(settings, "calendar-source-toggle")
+    input = findChild(trigger, "button-input")
+    ring = findChild(trigger, "toggle-switch-cursor-ring")
+    focusParking.forceActiveFocus()
+    for (var tab = 0; tab < 20 && !input.activeFocus; tab++) keyClick(Qt.Key_Tab)
+    verify(input.activeFocus, "the wrapper, not the decorative switch, receives Tab")
+    verify(trigger.hot)
+    verify(ring.visible, "keyboard focus keeps the switch's cursor ring visible")
+    keyClick(Qt.Key_Space)
+    compare(calendarFixture.toggleCalls, 2)
+    compare(calendarFixture.enabledValue, true)
+    wait(0)
+    trigger = findChild(settings, "calendar-source-toggle")
+    graphic = findChild(trigger, "toggle-switch-input")
+    compare(trigger.checked, true)
+    compare(graphic.checked, true)
+  }
 
   function test_standalone_controls_use_semantic_omamail_style() {
     verify(findChild(styledSwitch, "omamail-switch-knob"))

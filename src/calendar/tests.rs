@@ -111,12 +111,20 @@ fn icloud_calendar_refuses_non_apple_destinations_before_credentials() {
 async fn icloud_refusal_never_contacts_an_untrusted_target() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("https://{}/calendar/", listener.local_addr().unwrap());
-    let result = call(&json!({
-        "source":{"kind":"icloud","accountId":"imap:missing@icloud.com","url":url},
-        "operation":"list","body":"synthetic report"
-    }), None).await;
+    let result = call(
+        &json!({
+            "source":{"kind":"icloud","accountId":"imap:missing@icloud.com","url":url},
+            "operation":"list","body":"synthetic report"
+        }),
+        None,
+    )
+    .await;
     assert_eq!(result, Err("calendar_origin_refused"));
-    assert!(tokio::time::timeout(Duration::from_millis(50), listener.accept()).await.is_err());
+    assert!(
+        tokio::time::timeout(Duration::from_millis(50), listener.accept())
+            .await
+            .is_err()
+    );
 }
 
 #[test]

@@ -13,6 +13,7 @@ Rectangle {
   property bool bordered: false
   property bool selected: false
   property bool hasCursor: false
+  readonly property bool hot: control.hovered || control.activeFocus || hasCursor
   property bool leftAlign: false
   property bool focusable: false
   property string fontFamily: Style.font.family
@@ -48,6 +49,7 @@ Rectangle {
 
   QQC.Button {
     id: control
+    objectName: "button-input"
     anchors.fill: parent
     flat: true
     focusPolicy: root.focusable ? Qt.StrongFocus : Qt.NoFocus

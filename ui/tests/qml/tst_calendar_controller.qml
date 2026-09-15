@@ -142,7 +142,7 @@ Item {
       compare(controller.discoveryPendingCount, 0)
       compare(controller.refreshAfterSourceWrite, false)
       compare(discoverySpy.count, 1)
-      compare(discoverySpy.signalArguments[0], data.ok ? [true, "", 1]
+      compare(Array.prototype.slice.call(discoverySpy.signalArguments[0]), data.ok ? [true, "", 1]
         : [false, "The discovered calendars could not be saved", 0])
       compare(mailService.credentialWrites.length, 0, "discovery never writes a credential")
       if (data.ok) compare(controller.sourceList.sources.length, 2)
