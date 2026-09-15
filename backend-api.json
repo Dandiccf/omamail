@@ -1,10 +1,13 @@
 {
-  "apiVersion": 4,
-  "releasedApiVersion": 3,
+  "apiVersion": 5,
+  "releasedApiVersion": 4,
   "protocolVersion": 1,
   "methods": [
     "system.info",
     "system.quit",
+    "credentials.get",
+    "credentials.put",
+    "credentials.delete",
     "accounts.list",
     "account.identities",
     "account.conversation",
@@ -673,6 +676,47 @@
         "eventLooks.contract-account.43.id": "look-run",
         "eventLooks.contract-account.42.events.0.title": "Dinner",
         "attention": false
+      }
+    },
+    {
+      "name": "credential get rejects an unknown product kind before native access",
+      "method": "credentials.get",
+      "params": {
+        "kind": "native-command",
+        "accountId": "imap:contract@example.org"
+      },
+      "errorCode": -32602,
+      "equals": {
+        "message": "Invalid params"
+      }
+    },
+    {
+      "name": "credential put rejects controlled metadata before native access",
+      "method": "credentials.put",
+      "params": {
+        "kind": "imap-password",
+        "accountId": "imap:contract@example.org\nforged",
+        "secret": "synthetic"
+      },
+      "errorCode": -32602,
+      "equals": {
+        "message": "Invalid params"
+      }
+    },
+    {
+      "name": "credential delete rejects native attributes before native access",
+      "method": "credentials.delete",
+      "params": {
+        "kind": "calendar-password",
+        "accountId": "contract-source",
+        "nativeAttributes": [
+          "service",
+          "other-product"
+        ]
+      },
+      "errorCode": -32602,
+      "equals": {
+        "message": "Invalid params"
       }
     }
   ],

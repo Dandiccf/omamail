@@ -37,6 +37,7 @@ DropArea {
 
   property bool opened: false
   property bool userModified: false
+  property bool settingBodyText: false
   // Drafts parked for their send's undo window, oldest first, each beside
   // the name of the send it belongs to. The timer owns them while the
   // visible composer stays free for the next message.
@@ -145,6 +146,12 @@ DropArea {
     draftChanged()
   }
 
+  function setBodyText(value) {
+    settingBodyText = true
+    bodyEdit.text = value
+    settingBodyText = false
+  }
+
   function hasUserChanges() { return userModified }
 
   onAccountIdChanged: noteDraftChanged()
@@ -158,14 +165,9 @@ DropArea {
   onDraftAttachmentsChanged: noteDraftChanged()
   onForwardedAttachmentsChanged: noteDraftChanged()
 
-  readonly property string attachScript: service && service.pluginDir
-    ? service.pluginDir + "/scripts/attachment.sh" : ""
-  readonly property string composeDir: {
-    var cache = Quickshell.env("XDG_CACHE_HOME")
-    var home = Quickshell.env("HOME")
-    var rootDir = cache !== "" ? cache : (home + "/.cache")
-    return rootDir + "/omamail/compose"
-  }
+  readonly property string composeDir: service && typeof service.cachePath === "function"
+    ? service.cachePath("compose") : ""
+  property bool attachmentHostPending: false
 
   readonly property var contactBook: root.service
     && Array.isArray(root.service.recipientContacts)
@@ -219,7 +221,7 @@ DropArea {
     bccField.text = ""
     replyToField.text = ""
     subjectField.text = ""
-    bodyEdit.text = ""
+    setBodyText("")
     placedBody = ""
     bodyWasEdited = false
     bodyPrefix = ""
@@ -281,7 +283,7 @@ DropArea {
       root.pendingQuoteSummary = null
       root.pendingQuoteText = ""
       root.placedBody = root.bodyPrefix + String(result.body || "")
-      bodyEdit.text = root.placedBody
+      root.setBodyText(root.placedBody)
       if (params.summary && (root.mode === "reply" || root.mode === "replyAll") && subjectField.text === previousSubject)
         subjectField.text = String(result.replySubject || previousSubject)
     })
@@ -351,7 +353,7 @@ DropArea {
     bccField.text = String(saved.bcc || "")
     replyToField.text = String(saved.replyTo || "")
     subjectField.text = String(saved.subject || "")
-    bodyEdit.text = String(saved.body || "")
+    setBodyText(String(saved.body || ""))
     placedBody = String(saved.placedBody || "")
     bodyWasEdited = saved.bodyWasEdited === true
     userModified = typeof saved.userModified === "boolean"
@@ -613,7 +615,7 @@ DropArea {
     if (mode === "draft") {
       // Somebody wrote this and it was saved. None of it was placed, so all of
       // it is theirs — including the sign-off it already carries.
-      bodyEdit.text = String(values.body || "")
+      root.setBodyText(String(values.body || ""))
       placedBody = ""
       bodyWasEdited = true
       bodyPrefix = ""
@@ -910,13 +912,7 @@ DropArea {
   }
 
   function pumpAttach() {
-    if (attacher.running || root.attachmentReadPending || root.attachJobs.length === 0) return
-    if (root.attachScript === "") {
-      root.attachJobs = []
-      if (service && typeof service.fail === "function")
-        service.fail("The attachment helper is missing")
-      return
-    }
+    if (root.attachmentHostPending || root.attachmentReadPending || root.attachJobs.length === 0) return
     var job = root.attachJobs[0]
     var owner = root.draftKey
     var rest = root.attachJobs.slice(1)
@@ -924,7 +920,7 @@ DropArea {
     root.attaching = true
     if (job.mode === "read" || job.mode === "forget") {
       if (!root.service || !root.service.backend || !root.service.backend.ready) {
-        finishAttach(job.mode, JSON.stringify({ ok: false, error: "Mail backend unavailable" }))
+        finishAttach(job.mode, JSON.stringify({ ok: false, error: "Mail backend unavailable" }), owner)
         return
       }
       root.attachmentReadPending = true
@@ -937,17 +933,25 @@ DropArea {
       })
       return
     }
-    attacher.jobMode = job.mode
-    attacher.draftKey = owner
-    if (job.mode === "clipboard")
-      attacher.command = [root.attachScript, "clipboard", root.composeDir]
-    else if (job.mode === "pick")
-      attacher.command = [root.attachScript, "pick"]
-    else {
-      finishAttach(job.mode, JSON.stringify({ ok: false, error: "Unknown attachment action" }))
+    if (!root.service) {
+      finishAttach(job.mode, JSON.stringify({ ok: false, error: "Attachment service unavailable" }), owner)
       return
     }
-    attacher.running = true
+    root.attachmentHostPending = true
+    if (job.mode === "clipboard" && typeof root.service.clipboardAttachment === "function") {
+      root.service.clipboardAttachment(root.composeDir, function(result) {
+        root.attachmentHostPending = false
+        root.finishAttach(job.mode, JSON.stringify(result || {ok:false,error:"no-image"}), owner)
+      })
+    } else if (job.mode === "pick" && typeof root.service.chooseFiles === "function") {
+      root.service.chooseFiles(function(result) {
+        root.attachmentHostPending = false
+        root.finishAttach(job.mode, JSON.stringify(result || {ok:false,error:"cancelled"}), owner)
+      })
+    } else {
+      root.attachmentHostPending = false
+      finishAttach(job.mode, JSON.stringify({ ok: false, error: "Unknown attachment action" }), owner)
+    }
   }
 
   property bool attachmentReadPending: false
@@ -1826,8 +1830,13 @@ DropArea {
       selectedTextColor: root.textColor
       font.family: root.panelFontFamily
       font.pixelSize: Style.font.bodySmall
-      onTextChanged: root.noteDraftChanged()
-      onTextEdited: { root.bodyWasEdited = true; root.noteUserModified() }
+      onTextChanged: {
+        root.noteDraftChanged()
+        if (!root.settingBodyText && activeFocus) {
+          root.bodyWasEdited = true
+          root.noteUserModified()
+        }
+      }
       Keys.priority: Keys.BeforeItem
       Keys.onPressed: root.pasteKey(event)
     }
@@ -1996,17 +2005,4 @@ DropArea {
     }
 
   }
-
-  Process {
-    id: attacher
-    property string jobMode: ""
-    property string draftKey: ""
-    stdinEnabled: false
-    stdout: StdioCollector { id: attachOut; waitForEnd: true }
-    stderr: StdioCollector { waitForEnd: true }
-    onExited: function(exitCode) {
-      root.finishAttach(jobMode, String(attachOut.text || ""), draftKey)
-    }
-  }
-
 }

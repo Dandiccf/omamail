@@ -14,6 +14,9 @@ Item {
     property var nextError: null
     property bool backendCanDiscoverCalendars: true
     property var discoveryCallback: null
+    property var credentialWrites: []
+    property var configWrites: []
+    property var configCallback: null
     property var backend: ({ ready: false, call: function(method, params, callback) {
       mailService.requests.push({ method: method, params: params })
       if (method === "calendar.discover") {
@@ -35,6 +38,15 @@ Item {
     function withGoogleAccessToken(_accountId, callback) {
       callback("", "not used by this test")
     }
+    function credentialPut(kind, accountId, clientId, secret, callback) {
+      credentialWrites.push({kind:kind,accountId:accountId,clientId:clientId,secret:secret})
+      callback(true, "")
+      return true
+    }
+    function writeConfig(name, payload, callback) {
+      configWrites.push({name:name, payload:payload})
+      configCallback = callback
+    }
   }
 
   Omamail.CalendarController {
@@ -54,6 +66,7 @@ Item {
 
   TestCase {
     name: "CalendarController"
+    SignalSpy { id: discoverySpy; target: controller; signalName: "discoveryFinished" }
 
     function init() {
       // Reset here rather than at the end of each case: a failed compare aborts
@@ -73,6 +86,10 @@ Item {
         { id: "two@gmail.com", email: "two@gmail.com",
           provider: "gmail", signedIn: true }
       ]
+      mailService.credentialWrites = []
+      mailService.configWrites = []
+      mailService.configCallback = null
+      discoverySpy.clear()
       mailService.unifiedCalendarView = false
       controller.accountId = "imap:work@example.com"
       controller.refreshScope = ""
@@ -82,6 +99,54 @@ Item {
       controller.rangeEnd = 0
       controller.pendingRangeStart = 0
       controller.pendingRangeEnd = 0
+      controller.savingSource = false
+      controller.sourceBeingSaved = null
+      controller.sourceSecret = ""
+      controller.discoveringCalendars = false
+      controller.discoveringAccountId = ""
+      controller.discoverySaving = false
+      controller.discoveryPendingCount = 0
+      controller.discoveryError = ""
+      controller.refreshAfterSourceWrite = false
+      controller.sourceList = ({version:1, sources:[{
+        id:"caldav:team", kind:"caldav", name:"Team",
+        url:"https://calendar.example/team/", username:"work@example.com",
+        enabled:true, readOnly:false, colorKey:"accent"
+      }]})
+    }
+
+    function test_discovery_persists_through_platform_settings_data() {
+      return [{tag:"saved", ok:true}, {tag:"failed", ok:false}]
+    }
+
+    function test_discovery_persists_through_platform_settings(data) {
+      var before = JSON.stringify(controller.sourceList)
+      mailService.accountSummaries = [{id:"outlook:work@example.com",
+        calendarProvider:"microsoft", signedIn:true}]
+      mailService.backend.ready = true
+      verify(controller.discoverAccountCalendars("outlook:work@example.com"))
+      mailService.discoveryCallback({provider:"microsoft", accountId:"outlook:work@example.com",
+        calendars:[{sourceId:"microsoft:work", calendarId:"work", name:"Work", readOnly:false}]}, null)
+      compare(mailService.configWrites.length, 1)
+      compare(mailService.configWrites[0].name, "calendars.json")
+      compare(JSON.parse(mailService.configWrites[0].payload).sources.length, 2)
+      compare(JSON.stringify(controller.sourceList), before, "no optimistic replacement before persistence")
+      compare(controller.savingSource, true)
+      compare(controller.discoverySaving, true)
+      compare(discoverySpy.count, 0)
+      controller.setSourceEnabled("caldav:team", false)
+      compare(mailService.configWrites.length, 1, "no concurrent writer while saving discovery")
+      mailService.configCallback(data.ok, data.ok ? "" : "synthetic write refusal")
+      compare(controller.savingSource, false)
+      compare(controller.discoverySaving, false)
+      compare(controller.discoveryPendingCount, 0)
+      compare(controller.refreshAfterSourceWrite, false)
+      compare(discoverySpy.count, 1)
+      compare(discoverySpy.signalArguments[0], data.ok ? [true, "", 1]
+        : [false, "The discovered calendars could not be saved", 0])
+      compare(mailService.credentialWrites.length, 0, "discovery never writes a credential")
+      if (data.ok) compare(controller.sourceList.sources.length, 2)
+      else compare(JSON.stringify(controller.sourceList), before)
     }
 
     function test_network_requests_are_owned_by_backend() {
@@ -156,6 +221,8 @@ Item {
       mailService.backendCanDiscoverCalendars = false
       compare(controller.discoverAccountCalendars("imap:person@icloud.com"), false)
       compare(mailService.requests.length, 0)
+      compare(mailService.configWrites.length, 0)
+      compare(mailService.credentialWrites.length, 0)
       compare(controller.savingSource, false)
       compare(controller.discoveringCalendars, false)
     }
@@ -276,6 +343,17 @@ Item {
 
       mailService.unifiedCalendarView = true
 
+      compare(controller.pendingRangeStart, 1000)
+      compare(controller.pendingRangeEnd, 2000)
+    }
+
+    function test_updating_a_caldav_password_refreshes_the_visible_range() {
+      controller.rangeStart = 1000
+      controller.rangeEnd = 2000
+      controller.loading = true
+      controller.updateCalendarPassword(controller.sourceList.sources[0], "new-secret")
+      compare(mailService.credentialWrites, [{kind:"calendar-password",
+        accountId:"caldav:team",clientId:"",secret:"new-secret"}])
       compare(controller.pendingRangeStart, 1000)
       compare(controller.pendingRangeEnd, 2000)
     }
