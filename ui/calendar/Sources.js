@@ -198,12 +198,18 @@ function withMicrosoftAccounts(list, accountSummaries) {
     var accountId = trimmed(account.id || account.email)
     if (accountId === "") continue
     var saved = null
+    var discovered = false
     for (var s = 0; s < next.sources.length; s++) {
-      if (next.sources[s] && next.sources[s].id === "microsoft:" + accountId) {
-        saved = next.sources[s]
-        break
-      }
+      var source = next.sources[s] || {}
+      if (source.id === "microsoft:" + accountId) saved = source
+      else if (source.kind === "microsoft" && source.discovered === true
+          && trimmed(source.accountId) === accountId) discovered = true
     }
+    // Discovery names every calendar the account has, the primary one under
+    // this id when Graph flags it as the default. When Graph flags none, the
+    // primary calendar is already listed under its own id, and synthesizing
+    // another entry for it would fetch and draw the same calendar twice.
+    if (!saved && discovered) continue
     next = add(next, {
       id: "microsoft:" + accountId,
       kind: "microsoft",

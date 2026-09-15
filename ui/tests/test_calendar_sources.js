@@ -268,3 +268,31 @@ assert.strictEqual(namedMicrosoft.sources[0].name, "Work appointments",
   assert.strictEqual(available.sources[0].calendarId, "default-id")
   assert.strictEqual(available.sources[0].enabled, false)
 }
+
+// Graph may flag no calendar as the default. Every discovered calendar then
+// carries its own id, and synthesizing the account's primary calendar on top
+// would fetch the same one twice.
+{
+  const found = sources.applyDiscovery(sources.emptyList(), {
+    provider: "microsoft", accountId: "outlook:me@contoso.com", calendars: [{
+      sourceId: "microsoft:outlook:me@contoso.com:primary-hash", calendarId: "primary-id",
+      name: "Calendar", readOnly: false
+    }, {
+      sourceId: "microsoft:outlook:me@contoso.com:holiday-hash", calendarId: "holiday-id",
+      name: "Holidays", readOnly: true
+    }]
+  })
+  const accounts = [{
+    id: "outlook:me@contoso.com", email: "me@contoso.com",
+    provider: "outlook", signedIn: true
+  }]
+  const available = sources.withMicrosoftAccounts(found, accounts)
+  assert.strictEqual(JSON.stringify(available.sources.map(function(source) { return source.id })),
+    JSON.stringify(["microsoft:outlook:me@contoso.com:primary-hash", "microsoft:outlook:me@contoso.com:holiday-hash"]),
+    "discovery without a flagged default synthesizes no second primary calendar")
+  const fresh = sources.withMicrosoftAccounts(sources.emptyList(), accounts)
+  assert.strictEqual(JSON.stringify(fresh.sources.map(function(source) { return source.id })),
+    JSON.stringify(["microsoft:outlook:me@contoso.com"]),
+    "an undiscovered account still gets its primary calendar")
+}
+
