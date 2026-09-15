@@ -328,11 +328,44 @@ fn next_page(origin: &Url, payload: &Value, items_key: &str) -> Result<Option<Ur
             return Ok(None);
         };
         let next = configured_url(raw)?;
-        if next.origin() != origin.origin() || next.path() != origin.path() {
+        if next.origin() != origin.origin() || decoded_path(&next) != decoded_path(origin) {
             return Err("calendar_origin_refused");
         }
         Ok(Some(next))
     }
+}
+
+// The path as a list of decoded segments. A calendar id goes into the request
+// path with `=` and `+` literal, and the server may hand the same id back with
+// them percent-encoded: comparing the serialized strings would refuse the
+// second page of every such calendar. Segments stay separate so an encoded
+// slash inside one cannot spell a different resource.
+fn decoded_path(url: &Url) -> Vec<Vec<u8>> {
+    url.path()
+        .split('/')
+        .map(|segment| {
+            let bytes = segment.as_bytes();
+            let mut out = Vec::with_capacity(bytes.len());
+            let mut i = 0;
+            while i < bytes.len() {
+                let decoded = (bytes[i] == b'%' && i + 2 < bytes.len())
+                    .then(|| std::str::from_utf8(&bytes[i + 1..i + 3]).ok())
+                    .flatten()
+                    .and_then(|hex| u8::from_str_radix(hex, 16).ok());
+                match decoded {
+                    Some(byte) => {
+                        out.push(byte);
+                        i += 3;
+                    }
+                    None => {
+                        out.push(bytes[i]);
+                        i += 1;
+                    }
+                }
+            }
+            out
+        })
+        .collect()
 }
 
 async fn execute(

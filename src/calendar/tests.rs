@@ -127,6 +127,47 @@ async fn icloud_refusal_never_contacts_an_untrusted_target() {
     );
 }
 
+// A Graph calendar id is base64 with `=` padding, which the request builder
+// writes into the path literally while a nextLink may carry it as `%3D`. Both
+// spell the same resource, so the second page must not be refused; a link that
+// decodes to a different resource still is.
+#[test]
+fn pagination_compares_the_decoded_resource_path() {
+    let list = prepare(&json!({
+        "source":{"kind":"microsoft","calendarId":"AAMkAGI2AAA="},
+        "operation":"list","start":"2026-09-01T00:00:00Z","end":"2026-10-01T00:00:00Z"
+    }))
+    .unwrap();
+    assert_eq!(
+        list.url.path(),
+        "/v1.0/me/calendars/AAMkAGI2AAA=/calendarView"
+    );
+    let encoded =
+        "https://graph.microsoft.com/v1.0/me/calendars/AAMkAGI2AAA%3D/calendarView?$skip=50";
+    assert!(
+        next_page(&list.url, &json!({"@odata.nextLink":encoded}), "value")
+            .unwrap()
+            .is_some()
+    );
+    let literal =
+        "https://graph.microsoft.com/v1.0/me/calendars/AAMkAGI2AAA=/calendarView?$skip=50";
+    assert!(
+        next_page(&list.url, &json!({"@odata.nextLink":literal}), "value")
+            .unwrap()
+            .is_some()
+    );
+    for other in [
+        "https://graph.microsoft.com/v1.0/me/calendars/AAMkAGI2AAB%3D/calendarView?$skip=50",
+        "https://graph.microsoft.com/v1.0/me/calendars/AAMkAGI2AAA%3D/events?$skip=50",
+        "https://graph.microsoft.com/v1.0/me/calendars/AAMkAGI2AAA%3D%2FcalendarView?$skip=50",
+    ] {
+        assert!(
+            next_page(&list.url, &json!({"@odata.nextLink":other}), "value").is_err(),
+            "{other}"
+        );
+    }
+}
+
 #[test]
 fn pagination_cannot_change_credential_destination_or_resource() {
     let base =
