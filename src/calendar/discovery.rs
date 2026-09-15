@@ -101,7 +101,7 @@ async fn microsoft_with_client(
     for _ in 0..100 {
         let response = client
             .get(next.clone())
-            .bearer_auth(&token)
+            .bearer_auth(token)
             .header("Accept", "application/json")
             .send()
             .await
@@ -385,7 +385,9 @@ fn dav_calendars(
                 if let Some(value) = current.as_mut() {
                     match name.as_slice() {
                         b"calendar" => value.is_calendar = true,
-                        b"write" | b"write-content" => value.writable = true,
+                        // RFC 3744 §3.12: `all` aggregates every privilege,
+                        // so a server may report it instead of `write`.
+                        b"write" | b"write-content" | b"all" => value.writable = true,
                         b"comp" => {
                             value.saw_component = true;
                             if attribute_name(&event, &reader)
@@ -406,7 +408,7 @@ fn dav_calendars(
                 if let Some(value) = current.as_mut() {
                     match local_name(event.name().as_ref()) {
                         b"calendar" => value.is_calendar = true,
-                        b"write" | b"write-content" => value.writable = true,
+                        b"write" | b"write-content" | b"all" => value.writable = true,
                         b"comp" => {
                             value.saw_component = true;
                             if attribute_name(&event, &reader)
@@ -558,6 +560,22 @@ mod tests {
             values[0]["url"],
             "https://p37-caldav.icloud.com/123/calendars/work/"
         );
+    }
+
+    // RFC 3744 lets a server report every privilege at once as `<D:all/>`
+    // instead of spelling `write` out. A calendar the owner can write must not
+    // arrive read-only, because a discovered source offers no way to say
+    // otherwise.
+    #[test]
+    fn dav_parser_reads_an_aggregate_all_privilege_as_writable() {
+        let xml = r#"<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:response><d:href>/123/calendars/home/</d:href><d:propstat><d:prop><d:displayname>Home</d:displayname><d:resourcetype><d:collection/><c:calendar/></d:resourcetype><d:current-user-privilege-set><d:privilege><d:all/></d:privilege></d:current-user-privilege-set></d:prop></d:propstat></d:response><d:response><d:href>/123/calendars/shared/</d:href><d:propstat><d:prop><d:displayname>Shared</d:displayname><d:resourcetype><d:collection/><c:calendar/></d:resourcetype><d:current-user-privilege-set><d:privilege><d:read/></d:privilege></d:current-user-privilege-set></d:prop></d:propstat></d:response></d:multistatus>"#;
+        let base = Url::parse("https://p37-caldav.icloud.com/123/calendars/").unwrap();
+        let values = dav_calendars(xml, &base, "imap:me@icloud.com", "me@icloud.com").unwrap();
+        assert_eq!(values.len(), 2);
+        assert_eq!(values[0]["name"], "Home");
+        assert_eq!(values[0]["readOnly"], false);
+        assert_eq!(values[1]["name"], "Shared");
+        assert_eq!(values[1]["readOnly"], true);
     }
 
     #[test]
