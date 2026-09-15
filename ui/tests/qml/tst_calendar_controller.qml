@@ -12,6 +12,7 @@ Item {
     property var requests: []
     property var nextResult: ({ body: "{}", status: 200 })
     property var nextError: null
+    property var credentialWrites: []
     property var backend: ({ call: function(method, params, callback) {
       mailService.requests.push({ method: method, params: params })
       callback(mailService.nextResult, mailService.nextError)
@@ -28,6 +29,11 @@ Item {
 
     function withGoogleAccessToken(_accountId, callback) {
       callback("", "not used by this test")
+    }
+    function credentialPut(kind, accountId, clientId, secret, callback) {
+      credentialWrites.push({kind:kind,accountId:accountId,clientId:clientId,secret:secret})
+      callback(true, "")
+      return true
     }
   }
 
@@ -56,6 +62,7 @@ Item {
       mailService.requests = []
       mailService.nextResult = ({ body: "{}", status: 200 })
       mailService.nextError = null
+      mailService.credentialWrites = []
       mailService.unifiedCalendarView = false
       controller.accountId = "imap:work@example.com"
       controller.refreshScope = ""
@@ -65,6 +72,9 @@ Item {
       controller.rangeEnd = 0
       controller.pendingRangeStart = 0
       controller.pendingRangeEnd = 0
+      controller.savingSource = false
+      controller.sourceBeingSaved = null
+      controller.sourceSecret = ""
     }
 
     function test_network_requests_are_owned_by_backend() {
@@ -179,6 +189,17 @@ Item {
 
       mailService.unifiedCalendarView = true
 
+      compare(controller.pendingRangeStart, 1000)
+      compare(controller.pendingRangeEnd, 2000)
+    }
+
+    function test_updating_a_caldav_password_refreshes_the_visible_range() {
+      controller.rangeStart = 1000
+      controller.rangeEnd = 2000
+      controller.loading = true
+      controller.updateCalendarPassword(controller.sourceList.sources[0], "new-secret")
+      compare(mailService.credentialWrites, [{kind:"calendar-password",
+        accountId:"caldav:team",clientId:"",secret:"new-secret"}])
       compare(controller.pendingRangeStart, 1000)
       compare(controller.pendingRangeEnd, 2000)
     }
