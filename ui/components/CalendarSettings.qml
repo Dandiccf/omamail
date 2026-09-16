@@ -68,6 +68,7 @@ Column {
 
   CalendarPalette {
     id: calendarPalette
+    palettePath: root.service ? String(root.service.calendarPalettePath || "") : ""
     textColor: root.textColor
     accentColor: root.accentColor
     urgentColor: root.urgentColor
@@ -286,6 +287,7 @@ Column {
           }
 
           Rectangle {
+            objectName: "calendar-source-color-swatch"
             anchors.centerIn: parent
             width: Style.space(10)
             height: width
@@ -404,6 +406,7 @@ Column {
               border.color: root.textColor
 
               Rectangle {
+                objectName: "calendar-color-swatch-" + paletteOption.modelData
                 anchors.centerIn: parent
                 width: Style.space(8)
                 height: width

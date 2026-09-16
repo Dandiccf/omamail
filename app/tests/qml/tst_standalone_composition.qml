@@ -24,6 +24,8 @@ TestCase {
     property var accountSummaries: []
     property bool backendCanDiscoverCalendars: true
     property bool unifiedCalendarView: false
+    property string calendarPalettePath: ""
+    property string colorKey: "accent"
     property bool savingSource: false
     property bool discoveringCalendars: false
     property string discoveringAccountId: ""
@@ -31,7 +33,7 @@ TestCase {
     property bool enabledValue: true
     property var availableSources: ({version:1, sources:[{
       id:"icloud:one", kind:"icloud", name:"Personal", accountId:"imap:fixture@icloud.com",
-      enabled:enabledValue, discovered:true, colorKey:"accent"
+      enabled:enabledValue, discovered:true, colorKey:colorKey
     }]})
     signal calendarSaved(bool ok, string error)
     signal discoveryFinished(bool ok, string error, int count)
@@ -117,7 +119,50 @@ TestCase {
     manifest: ({id:"omamail"})
   }
 
-  function init() { host.reset() }
+  function init() {
+    host.reset()
+    calendarFixture.calendarPalettePath = ""
+    calendarFixture.colorKey = "accent"
+  }
+
+  function test_calendar_settings_palette_data() {
+    return [{tag: "theme palette", path: "/fixture/theme/colors.toml"},
+      {tag: "no theme palette", path: ""}]
+  }
+
+  function test_calendar_settings_palette(data) {
+    // Read through the host FileView adapter: injecting Palette.values would
+    // miss a caller that never supplies the theme path in the first place.
+    var colors = {accent: "#e68e0d", red: "#d35f5f", green: "#52b788",
+      yellow: "#f4d35e", blue: "#4d96ff", magenta: "#c77dff", cyan: "#56cfe1"}
+    var lines = []
+    for (var key in colors) lines.push(key + ' = "' + colors[key] + '"')
+    host.write("/fixture/theme/colors.toml", lines.join("\n"), false)
+    Quickshell.fileStore = host
+    calendarFixture.calendarPalettePath = data.path
+    calendarFixture.colorKey = "blue"
+    var settings = createTemporaryObject(calendarComponent, testCase)
+    verify(settings)
+    settings.colorEditingId = "icloud:one"
+    var sourceSwatch = findChild(settings, "calendar-source-color-swatch")
+    verify(sourceSwatch)
+    for (var slot in colors) {
+      var swatch = findChild(settings, "calendar-color-swatch-" + slot)
+      verify(swatch, slot)
+      var expected = data.path !== "" ? colors[slot]
+        : String(slot === "accent" ? settings.accentColor
+          : slot === "red" ? settings.urgentColor : settings.dimColor)
+      tryCompare(swatch, "color", expected)
+    }
+    tryCompare(sourceSwatch, "color", data.path !== "" ? colors.blue : settings.dimColor)
+    if (data.path !== "") {
+      // A live theme change must reach both the picker and the saved source dot.
+      host.write(data.path, lines.join("\n").replace(colors.blue, "#80bfff"), false)
+      host.changed(data.path)
+      tryCompare(findChild(settings, "calendar-color-swatch-blue"), "color", "#80bfff")
+      tryCompare(sourceSwatch, "color", "#80bfff")
+    }
+  }
 
   function test_calendar_visibility_has_one_mouse_and_keyboard_owner() {
     calendarFixture.enabledValue = true
