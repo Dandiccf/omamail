@@ -590,6 +590,7 @@ Item {
       retry.done({record:retry.params.record,revision:"durable"},null)
       compare(app.composeWriteQueued,false)
       compare(app.composeWritePayload,"")
+      compare(app.draftSavedNotice,"","a durable retry answers its save-failure warning")
     }
     function test_native_recovery_leaves_an_unanswered_save_to_the_reconnect() {
       beginNativeRecovery()
