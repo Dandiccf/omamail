@@ -124,6 +124,7 @@ Item {
   }
 
   readonly property var summary: service ? service.selectedMessage : null
+  readonly property bool isDraft: !!summary && summary.isDraft === true
 
   // The id the service answers to, which is not always the one on the summary.
   // A list made of several mailboxes addresses a row by mailbox and id, and the
@@ -315,11 +316,29 @@ Item {
       onActivated: root.backRequested()
     }
 
-    IconButton {
-      id: starButton
+    IconTextButton {
+      id: continueDraftButton
+      objectName: "reader-continue-draft-button"
       anchors.right: parent.right
       anchors.top: backBar.visible ? backBar.bottom : parent.top
       anchors.topMargin: backBar.visible ? Style.space(10) : 0
+      visible: root.isDraft
+      iconName: "edit"
+      text: "Continue editing"
+      outline: true
+      foreground: root.accentColor
+      accent: root.accentColor
+      fontFamily: root.panelFontFamily
+      onClicked: root.composeRequested("draft")
+    }
+
+    IconButton {
+      id: starButton
+      objectName: "reader-star-button"
+      anchors.right: parent.right
+      anchors.top: backBar.visible ? backBar.bottom : parent.top
+      anchors.topMargin: backBar.visible ? Style.space(10) : 0
+      visible: !root.isDraft
       iconName: "star"
       filled: !!root.summary && root.summary.starred
       tooltipText: (root.summary && root.summary.starred ? "Unstar" : "Star") + " · s"
@@ -332,7 +351,7 @@ Item {
     Column {
       id: headerColumn
       anchors.left: parent.left
-      anchors.right: starButton.left
+      anchors.right: root.isDraft ? continueDraftButton.left : starButton.left
       anchors.rightMargin: Style.space(8)
       anchors.top: backBar.visible ? backBar.bottom : parent.top
       anchors.topMargin: backBar.visible ? Style.space(14) : 0
@@ -796,7 +815,7 @@ Item {
       // across the panel. A row of controls that overlaps another row of
       // controls is worse than a taller toolbar, and the reader can be as
       // narrow as its own minimum beside the list.
-      readonly property bool stacked: messageActions.implicitWidth
+      readonly property bool stacked: messageActions.visible && messageActions.implicitWidth
         + viewTools.implicitWidth + Style.space(24) > width
       implicitHeight: stacked
         ? messageActions.implicitHeight + Style.space(4) + viewTools.implicitHeight
@@ -804,6 +823,7 @@ Item {
 
       Item {
         id: messageActions
+        visible: !root.isDraft
         readonly property int gap: Style.space(2)
         implicitWidth: trashButton.x + trashButton.width
         implicitHeight: Math.max(replyButton.height, replyAllButton.height,

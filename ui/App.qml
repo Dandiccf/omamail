@@ -653,10 +653,7 @@ Item {
   // the draft opens", which `push` fills in.
   property int pendingComposeReturnTo: -1
 
-  // The draft's entry, once the view has opened. The reply raised from the
-  // list has been holding its depth in pendingComposeReturnTo since before
-  // the message it answers was fetched; everything else returns to the place
-  // it was raised over.
+  // Push the draft after it opens; a deferred reply already holds its return depth.
   function trackComposeOpened() {
     var fields = {}
     if (pendingComposeReturnTo >= 0) fields.returnTo = pendingComposeReturnTo
@@ -664,9 +661,7 @@ Item {
     pushEntry("compose", fields)
   }
 
-  // What compose recovery writes: the reader, if leaving the draft would keep
-  // one open underneath, else the list. The file format predates the stack
-  // and says only that much.
+  // Recovery records whether closing the draft returns to a reader or the list.
   function composeReturnView() {
     for (var i = nav.length - 1; i >= 0; i--) {
       if (nav[i].kind !== "compose") continue
@@ -2094,7 +2089,10 @@ Item {
           onMemberMenuRequested: function(id, sceneX, sceneY) {
             rowMenu.openForMember(id, sceneX, sceneY)
           }
-          onComposeRequested: function(mode) { root.startCompose(mode) }
+          onComposeRequested: function(mode) {
+            if (mode === "draft" && root.service) root.editDraft(root.service.selectedId)
+            else root.startCompose(mode)
+          }
           onMailtoRequested: function(url) {
             root.openDraft(Mailto.parse(url))
           }
@@ -2994,6 +2992,7 @@ Item {
         popupBorderColor: root.popupBorder
         panelFontFamily: root.fontFamily
         onComposeRequested: function(mode, id) {
+          if (mode === "draft") { root.editDraft(id); return }
           root.pendingComposeReturnTo = Nav.depth(root.nav)
           root.openMessage(id)
           root.startCompose(mode)

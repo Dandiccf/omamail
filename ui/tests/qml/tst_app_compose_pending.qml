@@ -569,6 +569,7 @@ Item {
       verify(durable !== refused)
       durable.done({record:durable.params.record,revision:"durable"},null)
       compare(app.draftSavedNotice,"","the write answers the old backend warning it covered")
+    }
     function test_native_recovery_retries_a_failed_save_without_another_edit_data() {
       return [{tag:"the backend refused it",code:-32000,message:"recovery_unavailable"},
               {tag:"the host never sent it",code:-32011,message:"Too many pending requests"}]
@@ -1299,6 +1300,25 @@ Item {
       compare(app.currentView, "reader")
       compare(app.composing, false)
       app.back()
+      mailService.mailboxKey = "inbox"
+    }
+
+    function test_reader_offers_continue_editing_for_a_draft() {
+      app.open("{}")
+      mailService.mailboxKey = "drafts"
+      app.openMessage("draft-7")
+      mailService.selectedMessage = ({id:"draft-7",subject:"Saved subject",isDraft:true,
+        from:({email:"me@example.com"}),to:[],cc:[],bcc:[]})
+      mailService.selectedBody = ({text:"Saved body",source:"plain"})
+      mailService.detailPainted = true
+      mailService.detailLoading = false
+      wait(0)
+      var button = named(app,"reader-continue-draft-button")
+      verify(button && button.visible,"the reader must expose the draft's editing path")
+      button.clicked()
+      compare(app.composing,true)
+      compare(composeView().sourceDraftId,"draft-7")
+      composeView().finish()
       mailService.mailboxKey = "inbox"
     }
 
