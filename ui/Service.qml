@@ -2022,13 +2022,14 @@ Item {
   readonly property int sendSecondsRemaining: pendingSendHost
     ? pendingSendHost.sendSecondsRemaining : 0
   readonly property string lastError: unified
-    ? (unifiedSnapshotError || unifiedSnapshot.error || "") : (current ? current.lastError : "")
+    ? (unifiedBatchAction.error || unifiedSnapshotError || unifiedSnapshot.error || "") : (current ? current.lastError : "")
   // The last thing a mailbox said it did, and the undo that goes with it. Read
   // from `current` alone, archiving a row from a non-active mailbox in a merged
   // list produced no confirmation and no undo affordance at all — so the most
   // recent of them wins, which is the one the press just produced.
   readonly property string actionStatus: {
     if (!unified) return current ? current.actionStatus : ""
+    if (unifiedBatchAction.status !== "") return unifiedBatchAction.status
     var _epoch = listEpoch
     var newest = ""
     var at = -1
@@ -2235,10 +2236,12 @@ Item {
     return host ? host.refuseUnavailableAction(action) : true
   }
   function act(id, action, quiet, memberOnly) {
+    unifiedBatchAction.clear()
     var host = hostForId(id)
     return host ? host.act(sourceIdFor(id), action, quiet, memberOnly) : false
   }
   function toggleStar(id) {
+    unifiedBatchAction.clear()
     var host = hostForId(id)
     if (host) host.toggleStar(sourceIdFor(id))
   }
@@ -2249,15 +2252,10 @@ Item {
     }
     eachHost(function(host) { host.markAllRead() })
   }
-  // Several ticked rows at once. A merged list draws rows from several
-  // mailboxes, and a batch is one mailbox's request, so it is refused there
-  // the way a move is: the rule every unavailable action follows.
-  function actMany(ids, action) {
-    if (unified) {
-      fail("Acting on several messages needs one mailbox on screen")
-      return false
-    }
-    return current ? current.actMany(ids, action) : false
+  UnifiedBatchAction { id: unifiedBatchAction; service: root }
+  function actMany(ids, action, completion) {
+    if (!unified) return current ? current.actMany(ids, action, completion) : false
+    return unifiedBatchAction.run(ids, action, completion)
   }
   // The mailbox the From address belongs to, which compose already names:
   // `sendIdentities` spans every account and carries the id, so a unified
