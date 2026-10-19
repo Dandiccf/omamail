@@ -54,12 +54,20 @@ Column {
     return ""
   }
 
+  readonly property string tenantError: "That is not a Microsoft Entra Directory (tenant) ID or domain"
+
   function validatedTenant() {
     if (!workSwitch.checked) return ""
     var tenant = Microsoft.workTenant(tenantField.text)
     if (tenant !== "") return tenant
-    errorText.text = "That is not a Microsoft Entra Directory (tenant) ID or domain"
+    errorText.text = root.tenantError
     return ""
+  }
+
+  // The refusal is about the field as it was; editing it or switching the
+  // account type away from it answers that, and leaves other errors alone.
+  function clearTenantError() {
+    if (errorText.text === root.tenantError) errorText.text = ""
   }
 
   function accountValues() {
@@ -245,6 +253,7 @@ Column {
         foreground: root.textColor
         accent: root.accentColor
         onToggled: checked = !checked
+        onCheckedChanged: root.clearTenantError()
       }
 
       Text {
@@ -274,6 +283,7 @@ Column {
       font.family: root.panelFontFamily
       font.pixelSize: Style.font.bodySmall
       placeholderText: "Directory (tenant) ID or domain — blank for multitenant"
+      onTextChanged: root.clearTenantError()
       onAccepted: root.signIn()
     }
 

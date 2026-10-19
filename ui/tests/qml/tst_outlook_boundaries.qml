@@ -178,6 +178,26 @@ Item {
       var error = findChild(page, "outlook-error")
       verify(error.text.indexOf("tenant") >= 0)
     }
+    function test_tenant_refusal_clears_once_it_no_longer_applies() {
+      var page = createTemporaryObject(pageFactory, parent)
+      var error = findChild(page, "outlook-error")
+      var work = findChild(page, "outlook-work-switch")
+      var tenantField = findChild(page, "outlook-tenant-field")
+      compare(outlookValues(page, "contoso/../consumers"), null)
+      verify(error.text !== "")
+      tenantField.text = "contoso.onmicrosoft.com"
+      compare(error.text, "", "a corrected tenant is not still refused")
+      compare(outlookValues(page, "contoso/../consumers"), null)
+      work.checked = false
+      compare(error.text, "", "a personal account has no tenant to refuse")
+      work.checked = true
+      findChild(page, "outlook-address-field").text = "not an address"
+      compare(page.accountValues(), null)
+      var addressError = error.text
+      verify(addressError !== "")
+      tenantField.text = "other.onmicrosoft.com"
+      compare(error.text, addressError, "editing the tenant leaves another field's error alone")
+    }
     function test_work_account_setup_names_the_right_registration() {
       var page = createTemporaryObject(pageFactory, parent)
       verify(page !== null)
