@@ -44,6 +44,25 @@ Item {
       function checkMicrosoftConnection(callback) { connectionCallback = callback }
     }
   }
+  Component {
+    id: savedAccountFactory
+    QtObject {
+      property string accountAddress: "alice@contoso.com"
+      property bool backendCanCheckMicrosoftConnection: true
+      property int starts: 0
+      property var saved: null
+      property var auth: QtObject {
+        property bool loggedIn: false
+        property bool loginBusy: false
+        property string lastError: ""
+        property string tenant: ""
+        property string configuredClientId: "12345678-1234-4abc-9def-1234567890ab"
+        property string configuredSend: ""
+      }
+      function configureCurrentAccountAndSignInOAuth(values) { saved = values; starts++ }
+      function configureCurrentAccount(values) { saved = values }
+    }
+  }
   TestCase {
     name: "OutlookBoundaryReview"
     function readyHost() {
@@ -172,6 +191,70 @@ Item {
       verify(help.text.indexOf("this Microsoft Entra tenant, or as multitenant") >= 0)
       verify(help.text.indexOf("Directory (tenant) ID") >= 0)
       verify(help.text.indexOf("personal Microsoft accounts") < 0)
+    }
+    function test_personal_account_keeps_the_tenant_the_backend_reads_as_consumers() {
+      var page = createTemporaryObject(pageFactory, parent)
+      var address = findChild(page, "outlook-address-field")
+      var client = findChild(page, "outlook-client-id-field")
+      var work = findChild(page, "outlook-work-switch")
+      var tenantField = findChild(page, "outlook-tenant-field")
+      address.text = "alice@hotmail.com"
+      client.text = "12345678-1234-4abc-9def-1234567890ab"
+      work.checked = false
+      compare(tenantField.visible, false)
+      tenantField.text = "contoso.onmicrosoft.com"
+      var values = page.accountValues()
+      verify(values !== null)
+      compare(values.imap.tenant, "",
+        "a hidden tenant field must not turn a personal account into a work one")
+      compare(values.imap.smtpHost, "smtp-mail.outlook.com")
+    }
+    function test_editing_restores_the_saved_tenant_data() {
+      return [
+        {tag: "directory id", saved: "12345678-1234-4abc-9def-1234567890ab",
+          work: true, field: "12345678-1234-4abc-9def-1234567890ab"},
+        {tag: "tenant domain", saved: "contoso.onmicrosoft.com", work: true, field: "contoso.onmicrosoft.com"},
+        {tag: "multitenant", saved: "organizations", work: true, field: ""},
+        {tag: "personal", saved: "", work: false, field: ""}
+      ]
+    }
+    function test_editing_restores_the_saved_tenant(data) {
+      var service = createTemporaryObject(savedAccountFactory, parent)
+      service.auth.tenant = data.saved
+      var page = createTemporaryObject(pageFactory, parent, { service: service })
+      var work = findChild(page, "outlook-work-switch")
+      var tenantField = findChild(page, "outlook-tenant-field")
+      compare(work.checked, data.work)
+      compare(tenantField.text, data.field)
+      compare(tenantField.visible, data.work)
+      page.save()
+      verify(service.saved !== null)
+      compare(service.saved.imap.tenant, data.saved,
+        "saving an account unchanged must keep the authority it signs in at")
+    }
+    function test_enter_walks_from_the_client_id_to_the_tenant_then_signs_in() {
+      var service = createTemporaryObject(savedAccountFactory, parent)
+      service.auth.tenant = "organizations"
+      var page = createTemporaryObject(pageFactory, parent, { service: service })
+      var client = findChild(page, "outlook-client-id-field")
+      var tenantField = findChild(page, "outlook-tenant-field")
+      client.forceActiveFocus()
+      keyClick(Qt.Key_Return)
+      verify(tenantField.activeFocus, "a work account's Enter on the client ID reaches the tenant field")
+      compare(service.starts, 0)
+      keyClick(Qt.Key_Return)
+      compare(service.starts, 1)
+      compare(service.saved.imap.tenant, "organizations")
+    }
+    function test_enter_on_a_personal_client_id_signs_in() {
+      var service = createTemporaryObject(savedAccountFactory, parent)
+      service.accountAddress = "alice@hotmail.com"
+      var page = createTemporaryObject(pageFactory, parent, { service: service })
+      var client = findChild(page, "outlook-client-id-field")
+      client.forceActiveFocus()
+      keyClick(Qt.Key_Return)
+      compare(service.starts, 1)
+      compare(service.saved.imap.tenant, "")
     }
     function test_cancel_matches_google_signin_and_allows_retry() {
       var host = readyHost()
